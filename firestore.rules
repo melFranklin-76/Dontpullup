@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isValidCoordinate(lat, lng) {
+      return lat is float && lng is float 
+        && lat >= -90 && lat <= 90 
+        && lng >= -180 && lng <= 180;
+    }
+    
+    function isValidIncidentType(type) {
+      return type in ['Verbal', 'Physical', '911'];
+    }
+    
+    // Rate limiting helper
+    function notRecentlyCreated() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)/ratelimits/$(request.time.toDate().toDateString()));
+    }
+    
+    match /pins/{pinId} {
+      allow read: if true;
+      allow create: if isAuthenticated()
+        && isValidCoordinate(request.resource.data.latitude, request.resource.data.longitude)
+        && isValidIncidentType(request.resource.data.type)
+        && notRecentlyCreated()  // Rate limit: one pin per day per user
+        && request.resource.data.userID == request.auth.uid;
+        
+      allow delete: if isAuthenticated() 
+        && resource.data.userID == request.auth.uid;
+    }
+    
+    // Rate limiting document
+    match /users/{userId}/ratelimits/{date} {
+      allow write: if isAuthenticated() 
+        && request.auth.uid == userId;
+    }
+  }
+} 

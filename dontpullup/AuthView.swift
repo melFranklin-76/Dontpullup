@@ -1,0 +1,256 @@
+import SwiftUI
+import FirebaseAuth
+import Network
+
+struct AuthView: View {
+    @StateObject private var viewModel = AuthViewModel()
+    @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @State private var showError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        ZStack {
+            // Background color
+            Color.black.edgesIgnoringSafeArea(.all)
+            
+            VStack(spacing: 30) {
+                // Title with optimized rendering
+                VStack(spacing: 10) {
+                    Text("DON'T PULL UP")
+                        .font(.system(size: 38, weight: .black, design: .rounded))
+                        .foregroundColor(.red)
+                        .shadow(color: .black.opacity(0.5), radius: 2)
+                    
+                    Text("ON GRANDMA")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .rotationEffect(.degrees(-20))
+                }
+                .drawingGroup() // Enable Metal rendering for complex text
+                
+                // Main Message
+                Text("Show us who they are so we can show them who we not")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                
+                Spacer()
+                
+                // Network Status
+                if !networkMonitor.isConnected {
+                    Text("No Internet Connection")
+                        .font(.caption)
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(5)
+                }
+                
+                // Buttons with loading state
+                VStack(spacing: 20) {
+                    Button(action: {
+                        guard networkMonitor.isConnected else {
+                            errorMessage = "Internet connection required for authentication"
+                            showError = true
+                            return
+                        }
+                        
+                        Task {
+                            do {
+                                try await viewModel.signInAnonymously()
+                            } catch {
+                                errorMessage = error.localizedDescription
+                                showError = true
+                            }
+                        }
+                    }) {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red.opacity(0.8))
+                                .cornerRadius(10)
+                        } else {
+                            Text("Continue Anonymously")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red)
+                                .cornerRadius(10)
+                        }
+                    }
+                    .disabled(viewModel.isLoading)
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 50)
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+}
+
+// Login View
+struct LoginView: View {
+    @Binding var isPresented: Bool
+    @State private var email = ""
+    @State private var password = ""
+    @State private var isLoading = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 20) {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.emailAddress)
+                        .autocapitalization(.none)
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.password)
+                    
+                    Button(action: login) {
+                        Text("Sign In")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isLoading)
+                }
+                .padding()
+            }
+            .navigationTitle("Sign In")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func login() {
+        guard !email.isEmpty, !password.isEmpty else {
+            errorMessage = "Please fill in all fields"
+            showError = true
+            return
+        }
+        
+        isLoading = true
+        Auth.auth().signIn(withEmail: email, password: password) { result, error in
+            isLoading = false
+            if let error = error {
+                errorMessage = error.localizedDescription
+                showError = true
+            } else {
+                isPresented = false
+            }
+        }
+    }
+}
+
+// Sign Up View
+struct SignUpView: View {
+    @Binding var isPresented: Bool
+    @State private var email = ""
+    @State private var password = ""
+    @State private var confirmPassword = ""
+    @State private var isLoading = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 20) {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.emailAddress)
+                        .autocapitalization(.none)
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.newPassword)
+                    
+                    SecureField("Confirm Password", text: $confirmPassword)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textContentType(.newPassword)
+                    
+                    Button(action: signUp) {
+                        Text("Create Account")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isLoading)
+                }
+                .padding()
+            }
+            .navigationTitle("Create Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func signUp() {
+        guard !email.isEmpty, !password.isEmpty, !confirmPassword.isEmpty else {
+            errorMessage = "Please fill in all fields"
+            showError = true
+            return
+        }
+        
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match"
+            showError = true
+            return
+        }
+        
+        isLoading = true
+        Auth.auth().createUser(withEmail: email, password: password) { result, error in
+            isLoading = false
+            if let error = error {
+                errorMessage = error.localizedDescription
+                showError = true
+            } else {
+                isPresented = false
+            }
+        }
+    }
+}

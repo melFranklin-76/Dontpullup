@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isValidVideo() {
+      return request.resource.contentType.matches('video/.*')
+        && request.resource.size <= 100 * 1024 * 1024  // 100MB max
+        && request.resource.size > 0;
+    }
+    
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && isValidVideo()
+        && videoId.matches('video_.*_' + request.auth.uid + '_.*\\.mp4$');  // Ensure filename format
+      allow delete: if request.auth != null
+        && resource.metadata.userId == request.auth.uid;  // Only delete own videos
+    }
+  }
+} 
