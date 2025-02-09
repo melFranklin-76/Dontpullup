@@ -72,21 +72,28 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         print("AppDelegate: Application launching")
         
-        // Configure Firebase first
+        // Basic Firebase configuration without App Check
         FirebaseApp.configure()
         
-        // Configure Firestore settings
-        let settings = FirestoreSettings()
-        settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: FirestoreCacheSizeUnlimited))
+        // Configure Firestore for offline persistence
         let db = Firestore.firestore()
+        let settings = FirestoreSettings()
+        settings.cacheSettings = PersistentCacheSettings()
+        settings.isSSLEnabled = true
         db.settings = settings
         
-        // Setup connectivity monitoring
-        setupFirestoreConnectivityMonitoring()
+        // Enable Firestore debug logging
+        Firestore.enableLogging(true)
+        
+        print("Firebase configured successfully")
+        if let user = Auth.auth().currentUser {
+            print("Current user ID: \(user.uid)")
+        }
         
         return true
     }
     
+    // Required UIApplicationDelegate methods
     func application(_ application: UIApplication,
                     configurationForConnecting connectingSceneSession: UISceneSession,
                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -95,33 +102,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return sceneConfig
     }
     
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Clean up any resources
-        firestoreListener?.remove()
+    func application(_ application: UIApplication,
+                    didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
     }
     
-    private func setupFirestoreConnectivityMonitoring() {
-        firestoreListener = Firestore.firestore().collection("connectivity")
-            .document("status")
-            .addSnapshotListener { (_, error) in
-                if let error = error {
-                    if (error as NSError).domain == "FIRFirestoreErrorDomain" {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("FirestoreConnectionStatus"),
-                            object: nil,
-                            userInfo: ["isConnected": false]
-                        )
-                        print("Firestore connection lost: \(error.localizedDescription)")
-                    }
-                } else {
-                    NotificationCenter.default.post(
-                        name: Notification.Name("FirestoreConnectionStatus"),
-                        object: nil,
-                        userInfo: ["isConnected": true]
-                    )
-                    print("Firestore connection established")
-                }
-            }
+    func applicationWillTerminate(_ application: UIApplication) {
+        firestoreListener?.remove()
     }
 }
 

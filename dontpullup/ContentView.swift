@@ -68,6 +68,26 @@ struct ContentView: View {
                     
                     Spacer()
                     
+                    // Center on user location button
+                    Button(action: {
+                        hapticImpact.impactOccurred()
+                        mapViewModel.centerOnUserLocation()
+                    }) {
+                        Image(systemName: "location.fill")
+                            .font(.title)
+                            .foregroundColor(.white)
+                    }
+                    
+                    // Edit mode toggle
+                    Button(action: {
+                        hapticImpact.impactOccurred()
+                        mapViewModel.toggleEditMode()
+                    }) {
+                        Image(systemName: mapViewModel.isEditMode ? "xmark.circle.fill" : "pencil.circle.fill")
+                            .font(.title)
+                            .foregroundColor(mapViewModel.isEditMode ? .red : .white)
+                    }
+                    
                     Button(action: {
                         hapticImpact.impactOccurred()
                         mapViewModel.toggleMapType()

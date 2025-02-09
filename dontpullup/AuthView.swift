@@ -2,91 +2,153 @@ import SwiftUI
 import FirebaseAuth
 import Network
 
+struct AuthBackgroundModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        ZStack {
+            // Background Image
+            Image("welcome_background")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .edgesIgnoringSafeArea(.all)
+            
+            // Semi-transparent overlay
+            Color.black.opacity(0.7)
+                .edgesIgnoringSafeArea(.all)
+            
+            // Content
+            content
+        }
+    }
+}
+
+extension View {
+    func withAuthBackground() -> some View {
+        modifier(AuthBackgroundModifier())
+    }
+}
+
 struct AuthView: View {
     @StateObject private var viewModel = AuthViewModel()
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showingLogin = false
+    @State private var showingSignUp = false
     
     var body: some View {
-        ZStack {
-            // Background color
-            Color.black.edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 30) {
-                // Title with optimized rendering
-                VStack(spacing: 10) {
-                    Text("DON'T PULL UP")
-                        .font(.system(size: 38, weight: .black, design: .rounded))
-                        .foregroundColor(.red)
-                        .shadow(color: .black.opacity(0.5), radius: 2)
-                    
-                    Text("ON GRANDMA")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
-                        .rotationEffect(.degrees(-20))
-                }
-                .drawingGroup() // Enable Metal rendering for complex text
+        VStack(spacing: 40) {
+            // App Title
+            VStack(spacing: 0) {
+                Text("DON'T PULL UP")
+                    .font(.system(size: 48, weight: .black, design: .rounded))
+                    .foregroundColor(.red)
+                    .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 2)
                 
-                // Main Message
-                Text("Show us who they are so we can show them who we not")
-                    .font(.system(size: 24, weight: .bold))
+                Text("ON GRANDMA")
+                    .font(.system(size: 36, weight: .black, design: .rounded))
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding()
-                
-                Spacer()
-                
-                // Network Status
-                if !networkMonitor.isConnected {
-                    Text("No Internet Connection")
-                        .font(.caption)
-                        .foregroundColor(.yellow)
-                        .padding(.horizontal)
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(5)
+                    .shadow(color: .red.opacity(0.5), radius: 1, x: 0, y: 1)
+                    .rotationEffect(.degrees(-20))
+                    .offset(y: 5)
+            }
+            .padding(.top, 60)
+            
+            // Main Message
+            Text("Show us who they are\nso we can show them who we not")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+                .padding(.vertical, 20)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(12)
+            
+            Spacer()
+            
+            // Network Status
+            if !networkMonitor.isConnected {
+                Text("No Internet Connection")
+                    .font(.caption)
+                    .foregroundColor(.yellow)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(5)
+            }
+            
+            // Authentication Buttons
+            VStack(spacing: 20) {
+                // Sign In Button
+                Button(action: { showingLogin = true }) {
+                    Text("Sign In")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.3), radius: 3)
                 }
                 
-                // Buttons with loading state
-                VStack(spacing: 20) {
-                    Button(action: {
-                        guard networkMonitor.isConnected else {
-                            errorMessage = "Internet connection required for authentication"
+                // Sign Up Button
+                Button(action: { showingSignUp = true }) {
+                    Text("Create Account")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.green)
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.3), radius: 3)
+                }
+                
+                // Anonymous Continue Button
+                Button(action: {
+                    guard networkMonitor.isConnected else {
+                        errorMessage = "Internet connection required for authentication"
+                        showError = true
+                        return
+                    }
+                    
+                    Task {
+                        do {
+                            try await viewModel.signInAnonymously()
+                        } catch {
+                            errorMessage = error.localizedDescription
                             showError = true
-                            return
-                        }
-                        
-                        Task {
-                            do {
-                                try await viewModel.signInAnonymously()
-                            } catch {
-                                errorMessage = error.localizedDescription
-                                showError = true
-                            }
-                        }
-                    }) {
-                        if viewModel.isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.red.opacity(0.8))
-                                .cornerRadius(10)
-                        } else {
-                            Text("Continue Anonymously")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.red)
-                                .cornerRadius(10)
                         }
                     }
-                    .disabled(viewModel.isLoading)
+                }) {
+                    if viewModel.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.red.opacity(0.8))
+                            .cornerRadius(12)
+                    } else {
+                        Text("Continue Anonymously")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.red)
+                            .cornerRadius(12)
+                            .shadow(color: .black.opacity(0.3), radius: 3)
+                    }
                 }
-                .padding(.horizontal, 40)
-                .padding(.bottom, 50)
+                .disabled(viewModel.isLoading)
             }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 50)
+        }
+        .withAuthBackground()
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingLogin) {
+            LoginView(isPresented: $showingLogin)
+        }
+        .sheet(isPresented: $showingSignUp) {
+            SignUpView(isPresented: $showingSignUp)
         }
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
@@ -107,32 +169,28 @@ struct LoginView: View {
     
     var body: some View {
         NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
+            VStack(spacing: 20) {
+                TextField("Email", text: $email)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.emailAddress)
+                    .autocapitalization(.none)
                 
-                VStack(spacing: 20) {
-                    TextField("Email", text: $email)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.emailAddress)
-                        .autocapitalization(.none)
-                    
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.password)
-                    
-                    Button(action: login) {
-                        Text("Sign In")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.blue)
-                            .cornerRadius(10)
-                    }
-                    .disabled(isLoading)
+                SecureField("Password", text: $password)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.password)
+                
+                Button(action: login) {
+                    Text("Sign In")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.blue)
+                        .cornerRadius(10)
                 }
-                .padding()
+                .disabled(isLoading)
             }
+            .padding()
             .navigationTitle("Sign In")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -140,9 +198,11 @@ struct LoginView: View {
                     Button("Cancel") {
                         isPresented = false
                     }
+                    .foregroundColor(.white)
                 }
             }
         }
+        .withAuthBackground()
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -182,36 +242,32 @@ struct SignUpView: View {
     
     var body: some View {
         NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
+            VStack(spacing: 20) {
+                TextField("Email", text: $email)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.emailAddress)
+                    .autocapitalization(.none)
                 
-                VStack(spacing: 20) {
-                    TextField("Email", text: $email)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.emailAddress)
-                        .autocapitalization(.none)
-                    
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.newPassword)
-                    
-                    SecureField("Confirm Password", text: $confirmPassword)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .textContentType(.newPassword)
-                    
-                    Button(action: signUp) {
-                        Text("Create Account")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.blue)
-                            .cornerRadius(10)
-                    }
-                    .disabled(isLoading)
+                SecureField("Password", text: $password)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.newPassword)
+                
+                SecureField("Confirm Password", text: $confirmPassword)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textContentType(.newPassword)
+                
+                Button(action: signUp) {
+                    Text("Create Account")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.green)
+                        .cornerRadius(10)
                 }
-                .padding()
+                .disabled(isLoading)
             }
+            .padding()
             .navigationTitle("Create Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -219,9 +275,11 @@ struct SignUpView: View {
                     Button("Cancel") {
                         isPresented = false
                     }
+                    .foregroundColor(.white)
                 }
             }
         }
+        .withAuthBackground()
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
