@@ -303,79 +303,84 @@ struct MapView: UIViewRepresentable {
                         parent.viewModel.showError("You can only delete your own pins")
                     }
                 }
-            } else {
-                // Play video immediately
-                if let videoURL = URL(string: pin.videoURL) {
-                    Task { @MainActor in
-                        do {
-                            // Check if a video player is already being presented
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let rootViewController = windowScene.windows.first?.rootViewController,
-                               rootViewController.presentedViewController != nil {
-                                // Wait for any existing presentation to complete
-                                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                            }
-                            
-                            // Show loading indicator
-                            let loadingAlert = UIAlertController(
-                                title: "Loading Video",
-                                message: "Please wait...",
-                                preferredStyle: .alert
-                            )
-                            
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let rootViewController = windowScene.windows.first?.rootViewController {
-                                rootViewController.present(loadingAlert, animated: true)
-                            }
-                            
-                            // Try to get cached video first
-                            if let cachedData = parent.viewModel.getCachedVideo(for: pin.videoURL),
-                               let cachedURL = try? await saveTempVideo(data: cachedData) {
-                                loadingAlert.dismiss(animated: true)
-                                await playVideo(from: cachedURL)
-                                return
-                            }
-                            
-                            // Create an asset and preload it
-                            let asset = AVURLAsset(url: videoURL)
-                            _ = try await asset.load(.isPlayable)
-                            
-                            // Cache the video data for future use
-                            if let url = URL(string: pin.videoURL) {
-                                try? await parent.viewModel.cacheVideo(from: url, key: pin.videoURL)
-                            }
-                            
-                            loadingAlert.dismiss(animated: true)
-                            
-                            let player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                            let playerViewController = AVPlayerViewController()
-                            playerViewController.player = player
-                            
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let rootViewController = windowScene.windows.first?.rootViewController,
-                               rootViewController.presentedViewController == loadingAlert {
+                return
+            }
+            
+            // Play video immediately
+            if let videoURL = URL(string: pin.videoURL) {
+                Task { @MainActor in
+                    do {
+                        // Check if there's already a video being presented
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootViewController = windowScene.windows.first?.rootViewController,
+                           rootViewController.presentedViewController != nil {
+                            // Dismiss any existing presentation first
+                            await withCheckedContinuation { continuation in
                                 rootViewController.dismiss(animated: true) {
-                                    rootViewController.present(playerViewController, animated: true) {
-                                        player.play()
-                                    }
+                                    continuation.resume()
                                 }
                             }
-                        } catch let error as NSError {
-                            // Dismiss loading alert if present
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let rootViewController = windowScene.windows.first?.rootViewController {
-                                rootViewController.dismiss(animated: true)
+                        }
+                        
+                        // Show loading indicator
+                        let loadingAlert = UIAlertController(
+                            title: "Loading Video",
+                            message: "Please wait...",
+                            preferredStyle: .alert
+                        )
+                        
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootViewController = windowScene.windows.first?.rootViewController {
+                            rootViewController.present(loadingAlert, animated: true)
+                        }
+                        
+                        // Try to get cached video first
+                        if let cachedData = parent.viewModel.getCachedVideo(for: pin.videoURL),
+                           let cachedURL = try? await saveTempVideo(data: cachedData) {
+                            loadingAlert.dismiss(animated: true)
+                            await playVideo(from: cachedURL)
+                            return
+                        }
+                        
+                        // Create an asset and preload it
+                        let asset = AVURLAsset(url: videoURL)
+                        _ = try await asset.load(.isPlayable)
+                        
+                        // Cache the video data for future use
+                        if let url = URL(string: pin.videoURL) {
+                            try? await parent.viewModel.cacheVideo(from: url, key: pin.videoURL)
+                        }
+                        
+                        loadingAlert.dismiss(animated: true)
+                        
+                        let player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                        let playerViewController = AVPlayerViewController()
+                        playerViewController.player = player
+                        
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootViewController = windowScene.windows.first?.rootViewController,
+                           rootViewController.presentedViewController == loadingAlert {
+                            rootViewController.dismiss(animated: true) {
+                                rootViewController.present(playerViewController, animated: true) {
+                                    player.play()
+                                }
                             }
-                            
-                            // Handle specific error cases
-                            switch error.domain {
-                            case AVFoundationErrorDomain:
-                                parent.viewModel.showError("Video playback error: The video format is not supported")
-                            case NSURLErrorDomain:
-                                parent.viewModel.showError("Network error: Please check your connection and try again")
-                            default:
-                                parent.viewModel.showError("Failed to load video: \(error.localizedDescription)")
-                            }
+                        }
+                    } catch let error as NSError {
+                        // Dismiss loading alert if present
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootViewController = windowScene.windows.first?.rootViewController {
+                            rootViewController.dismiss(animated: true)
+                        }
+                        
+                        // Handle specific error cases
+                        switch error.domain {
+                        case AVFoundationErrorDomain:
+                            parent.viewModel.showError("Video playback error: The video format is not supported")
+                        case NSURLErrorDomain:
+                            parent.viewModel.showError("Network error: Please check your connection and try again")
+                        default:
+                            parent.viewModel.showError("Failed to load video: \(error.localizedDescription)")
                         }
                     }
                 }
@@ -397,6 +402,18 @@ struct MapView: UIViewRepresentable {
         
         private func playVideo(from url: URL) async {
             do {
+                // Check if there's already a video being presented
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let rootViewController = windowScene.windows.first?.rootViewController,
+                   rootViewController.presentedViewController != nil {
+                    // Dismiss any existing presentation first
+                    await withCheckedContinuation { continuation in
+                        rootViewController.dismiss(animated: true) {
+                            continuation.resume()
+                        }
+                    }
+                }
+                
                 // Create an asset and preload it
                 let asset = AVURLAsset(url: url)
                 
@@ -437,26 +454,29 @@ struct MapView: UIViewRepresentable {
                     loadingIndicator.startAnimating()
                     
                     // Present the player
-                    rootViewController.present(playerViewController, animated: true) {
-                        // Start playing when ready
-                        player.play()
-                        
-                        // Store observation token to prevent premature deallocation
-                        let observation = player.currentItem?.observe(\.status) { [weak self] item, _ in
-                            DispatchQueue.main.async {
-                                if item.status == .readyToPlay {
-                                    loadingIndicator.stopAnimating()
-                                    loadingIndicator.removeFromSuperview()
-                                } else if item.status == .failed {
-                                    self?.parent.viewModel.showError("Failed to play video: \(item.error?.localizedDescription ?? "Unknown error")")
-                                }
+                    await withCheckedContinuation { continuation in
+                        rootViewController.present(playerViewController, animated: true) {
+                            // Start playing when ready
+                            player.play()
+                            continuation.resume()
+                        }
+                    }
+                    
+                    // Store observation token to prevent premature deallocation
+                    let observation = player.currentItem?.observe(\.status) { [weak self] item, _ in
+                        DispatchQueue.main.async {
+                            if item.status == .readyToPlay {
+                                loadingIndicator.stopAnimating()
+                                loadingIndicator.removeFromSuperview()
+                            } else if item.status == .failed {
+                                self?.parent.viewModel.showError("Failed to play video: \(item.error?.localizedDescription ?? "Unknown error")")
                             }
                         }
-                        
-                        // Store observation token in associated object to keep it alive
-                        if let observation = observation {
-                            objc_setAssociatedObject(playerViewController, "statusObservation", observation, .OBJC_ASSOCIATION_RETAIN)
-                        }
+                    }
+                    
+                    // Store observation token in associated object to keep it alive
+                    if let observation = observation {
+                        objc_setAssociatedObject(playerViewController, "statusObservation", observation, .OBJC_ASSOCIATION_RETAIN)
                     }
                 }
             } catch {
