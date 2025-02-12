@@ -8,6 +8,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 import Network
+import Foundation
 
 @preconcurrency import PhotosUI
 
@@ -46,6 +47,7 @@ class MapViewModel: NSObject, ObservableObject {
     @Published var uploadProgress: Double = 0
     @Published var alertMessage: String?
     @Published var showAlert = false
+    @Published private(set) var isListenerActive = false
     
     // MARK: - Internal Properties
     var pendingCoordinate: CLLocationCoordinate2D?
@@ -84,6 +86,16 @@ class MapViewModel: NSObject, ObservableObject {
         // Setup offline support and start observing pins
         setupOfflineSupport()
         observePins() // Explicitly call observePins
+        
+        // Replace the Timer with a proper async Task
+        Task { @MainActor in
+            while true {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+                if !Task.isCancelled {
+                    self.checkAndRestartListener()
+                }
+            }
+        }
         
         // Load cached data if available
         loadCachedData()
@@ -585,7 +597,7 @@ class MapViewModel: NSObject, ObservableObject {
         // Remove any existing file at output path
         try? FileManager.default.removeItem(at: outputURL)
         
-        // Create export session
+        // Create and configure export session
         guard let exportSession = AVAssetExportSession(
             asset: asset,
             presetName: AVAssetExportPresetMediumQuality
@@ -602,7 +614,7 @@ class MapViewModel: NSObject, ObservableObject {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
-        // Set maximum duration if needed (e.g., 60 seconds)
+        // Set maximum duration if needed
         let duration = try await asset.load(.duration)
         if duration.seconds > 60 {
             exportSession.timeRange = CMTimeRangeMake(
@@ -614,19 +626,18 @@ class MapViewModel: NSObject, ObservableObject {
         print("Compressing video...")
         
         // Use async/await for export operation
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             exportSession.exportAsynchronously {
                 switch exportSession.status {
                 case .completed:
                     do {
                         // Verify output file exists
                         guard FileManager.default.fileExists(atPath: outputURL.path) else {
-                            continuation.resume(throwing: NSError(
+                            throw NSError(
                                 domain: "VideoCompression",
                                 code: -4,
                                 userInfo: [NSLocalizedDescriptionKey: "Compressed file not found"]
-                            ))
-                            return
+                            )
                         }
                         
                         // Check if the compressed file is actually smaller
@@ -680,10 +691,12 @@ class MapViewModel: NSObject, ObservableObject {
     
     private func observePins() {
         print("Setting up Firestore pins listener...")
-        let db = FirebaseManager.shared.firestore()
         
         // Remove existing listener if any
         offlineListener?.remove()
+        isListenerActive = false
+        
+        let db = FirebaseManager.shared.firestore()
         
         // Setup offline persistence with real-time updates
         offlineListener = db.collection("pins")
@@ -693,7 +706,7 @@ class MapViewModel: NSObject, ObservableObject {
                 if let error = error {
                     print("Firestore error: \(error.localizedDescription)")
                     if (error as NSError).domain == "FIRFirestoreErrorDomain" && 
-                       (error as NSError).code == 8 { // Unavailable error
+                        (error as NSError).code == 8 { // Unavailable error
                         // Network error - use cached data and notify user
                         self.showError("Network connection lost. Using cached data.")
                         return
@@ -707,71 +720,53 @@ class MapViewModel: NSObject, ObservableObject {
                     return
                 }
                 
-                // Check if data is from cache
-                let isFromCache = snapshot.metadata.isFromCache
-                print("Loading pins - From cache: \(isFromCache)")
+                // Check for metadata changes
+                let source = snapshot.metadata.isFromCache ? "cache" : "server"
+                print("Loading pins from \(source)")
                 
                 Task {
                     do {
-                        // Process pins individually without any grouping
+                        // Process pins with immediate updates
                         let newPins = try await withThrowingTaskGroup(of: Pin?.self) { group in
-                            for document in snapshot.documents {
+                            for change in snapshot.documentChanges {
                                 group.addTask {
-                                    let data = document.data()
-                                    
-                                    guard let latitude = data["latitude"] as? Double,
-                                          let longitude = data["longitude"] as? Double,
-                                          let typeString = data["type"] as? String,
-                                          let videoURL = data["videoURL"] as? String,
-                                          let userId = data["userID"] as? String else {
-                                        print("Invalid pin data in document: \(document.documentID)")
-                                        return nil
-                                    }
-                                    
-                                    let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-                                    
-                                    let incidentType: IncidentType
-                                    switch typeString {
-                                    case "Verbal": incidentType = .verbal
-                                    case "Physical": incidentType = .physical
-                                    case "911": incidentType = .emergency
-                                    default:
-                                        print("Invalid incident type: \(typeString)")
-                                        return nil
-                                    }
-                                    
-                                    // If online, cache video for offline use
-                                    if !isFromCache {
-                                        if let url = URL(string: videoURL) {
-                                            try? await self.cacheVideo(from: url, key: videoURL)
+                                    switch change.type {
+                                    case .added, .modified:
+                                        return try await self.processDocument(change.document)
+                                    case .removed:
+                                        // Handle removed pins
+                                        await MainActor.run {
+                                            self.pins.removeAll { $0.id == change.document.documentID }
+                                            self.updateFilteredPins()
                                         }
+                                        return nil
                                     }
-                                    
-                                    return Pin(
-                                        id: document.documentID,
-                                        coordinate: coordinate,
-                                        incidentType: incidentType,
-                                        videoURL: videoURL,
-                                        userId: userId
-                                    )
                                 }
                             }
                             
-                            var pins: [Pin] = []
+                            var processedPins: [Pin] = []
                             for try await pin in group {
                                 if let pin = pin {
-                                    pins.append(pin)
+                                    processedPins.append(pin)
                                 }
                             }
-                            return pins
+                            return processedPins
                         }
                         
                         await MainActor.run {
-                            print("Updating pins - Count: \(newPins.count)")
-                            self.pins = newPins
+                            // Update pins array based on changes
+                            for pin in newPins {
+                                if let index = self.pins.firstIndex(where: { $0.id == pin.id }) {
+                                    self.pins[index] = pin
+                                } else {
+                                    self.pins.append(pin)
+                                }
+                            }
                             self.updateFilteredPins()
-                            self.cachePins(newPins)
+                            self.cachePins(self.pins)
                         }
+                        
+                        self.isListenerActive = true
                     } catch {
                         await MainActor.run {
                             self.showError("Failed to process pins: \(error.localizedDescription)")
@@ -779,226 +774,59 @@ class MapViewModel: NSObject, ObservableObject {
                     }
                 }
             }
+        
         print("Firestore pins listener setup complete")
     }
     
-    func deletePin(_ pin: Pin) async throws {
-        // First check if user can edit this pin
-        guard await userCanEditPin(pin) else {
-            throw NSError(
-                domain: "PinDeletion",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "You can only delete pins that you created on this device"]
-            )
+    private func processDocument(_ document: QueryDocumentSnapshot) async throws -> Pin? {
+        let data = document.data()
+        
+        guard let latitude = data["latitude"] as? Double,
+              let longitude = data["longitude"] as? Double,
+              let typeString = data["type"] as? String,
+              let videoURL = data["videoURL"] as? String,
+              let userId = data["userID"] as? String else {
+            print("Invalid document data: \(document.documentID)")
+            return nil
         }
         
-        // Double check authentication
-        guard let currentUserId = Auth.auth().currentUser?.uid,
-              currentUserId == pin.userId else {
-            throw NSError(
-                domain: "PinDeletion",
-                code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "Authentication error"]
-            )
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        
+        let incidentType: IncidentType
+        switch typeString {
+        case "Verbal": incidentType = .verbal
+        case "Physical": incidentType = .physical
+        case "911": incidentType = .emergency
+        default:
+            print("Invalid incident type: \(typeString)")
+            return nil
         }
         
-        // If authorized, proceed with deletion
-        if let videoURL = URL(string: pin.videoURL) {
-            let storageRef = Storage.storage().reference(forURL: videoURL.absoluteString)
-            try await storageRef.delete()
-        }
-        
-        // Delete from Firestore
-        try await FirebaseManager.shared.firestore().collection("pins").document(pin.id).delete()
-        
-        // Update local arrays on main thread
-        await MainActor.run {
-            self.pins.removeAll { $0.id == pin.id }
-            self.filteredPins.removeAll { $0.id == pin.id }
-            self.updateFilteredPins()
-        }
-    }
-    
-    func userCanEditPin(_ pin: Pin) async -> Bool {
-        guard let currentUserId = Auth.auth().currentUser?.uid else {
-            print("Cannot edit pin: User not authenticated")
-            return false
-        }
-        
-        // Check if the pin belongs to the current user
-        let canEdit = pin.userId == currentUserId
-        if !canEdit {
-            print("Cannot edit pin: Pin belongs to different user")
-        }
-        return canEdit
-    }
-    
-    nonisolated func isFilterActive(_ type: IncidentType) async -> Bool {
-        await Task { @MainActor in
-            selectedFilters.contains(type)
-        }.value
-    }
-    
-    @MainActor
-    func dropPin(for type: IncidentType) {
-        // Request fresh location to verify pin placement
-        guard locationManager.authorizationStatus == .authorizedWhenInUse ||
-              locationManager.authorizationStatus == .authorizedAlways else {
-            showError("Location access is required to verify pin placement")
-            return
-        }
-        
-        // Request a single location update
-        locationManager.requestLocation()
-        
-        guard let currentLocation = locationManager.location else {
-            showError("Unable to determine your location")
-            return
-        }
-        
-        guard let coordinate = pendingCoordinate else {
-            showError("No location selected")
-            return
-        }
-        
-        let pinLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let distance = currentLocation.distance(from: pinLocation)
-        
-        guard distance <= MAX_PIN_DISTANCE else {
-            showError("You can only drop pins within 200 feet of your location")
-            return
-        }
-        
-        currentIncidentType = type
-        
-        // Present photo picker on the main thread
-        Task { @MainActor in
-            let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-            
-            switch status {
-            case .authorized, .limited:
-                var config = PHPickerConfiguration(photoLibrary: .shared())
-                config.filter = .videos
-                config.selectionLimit = 1
-                config.preferredAssetRepresentationMode = .current
-                
-                let picker = PHPickerViewController(configuration: config)
-                picker.delegate = self
-                
-                // Find the top-most view controller
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first,
-                   let rootViewController = window.rootViewController {
-                    // Dismiss the current view controller first
-                    if let presentedVC = rootViewController.presentedViewController {
-                        presentedVC.dismiss(animated: true) {
-                            // Present the photo picker after dismissal
-                            rootViewController.present(picker, animated: true) {
-                                // Set this to false only after the picker is presented
-                                self.showingIncidentPicker = false
-                            }
-                        }
-                    } else {
-                        rootViewController.present(picker, animated: true) {
-                            // Set this to false only after the picker is presented
-                            self.showingIncidentPicker = false
-                        }
-                    }
-                } else {
-                    showError("Could not present video picker")
-                    currentIncidentType = nil
-                    pendingCoordinate = nil
-                    showingIncidentPicker = false
-                }
-                
-            case .denied, .restricted:
-                showError("Please allow access to your photo library in Settings to upload videos")
-                currentIncidentType = nil
-                pendingCoordinate = nil
-                showingIncidentPicker = false
-                
-            case .notDetermined:
-                showError("Photo library access is required to upload videos")
-                currentIncidentType = nil
-                pendingCoordinate = nil
-                showingIncidentPicker = false
-                
-            @unknown default:
-                showError("Unknown photo library access status")
-                currentIncidentType = nil
-                pendingCoordinate = nil
-                showingIncidentPicker = false
-            }
-        }
-    }
-    
-    @MainActor
-    private func cleanupTemporaryFiles() {
-        let tempDirectory = FileManager.default.temporaryDirectory
-        do {
-            let tempFiles = try FileManager.default.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil)
-            for file in tempFiles where file.lastPathComponent.contains("compressed_") {
-                try? FileManager.default.removeItem(at: file)
-            }
-        } catch {
-            print("Failed to cleanup temporary files: \(error.localizedDescription)")
-        }
-    }
-    
-    private func loadVideo(from provider: NSItemProvider) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                
-                guard let originalURL = url else {
-                    continuation.resume(throwing: NSError(
-                        domain: "VideoLoad",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "Invalid video file"]
-                    ))
-                    return
-                }
-                
+        // Cache video in background if online
+        if let url = URL(string: videoURL) {
+            Task.detached {
                 do {
-                    let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    let tempFileName = "\(UUID().uuidString)_temp.mov"
-                    let tempURL = documentsDirectory.appendingPathComponent(tempFileName)
-                    
-                    if FileManager.default.fileExists(atPath: tempURL.path) {
-                        try FileManager.default.removeItem(at: tempURL)
-                    }
-                    try FileManager.default.copyItem(at: originalURL, to: tempURL)
-                    continuation.resume(returning: tempURL)
+                    try await self.cacheVideo(from: url, key: videoURL)
                 } catch {
-                    continuation.resume(throwing: error)
+                    print("Failed to cache video: \(error.localizedDescription)")
                 }
             }
         }
-    }
-    
-    // Update helper method to check video duration
-    private func checkVideoDuration(_ url: URL) async throws {
-        let asset = AVAsset(url: url)
-        let duration = try await asset.load(.duration)
-        let durationInSeconds = CMTimeGetSeconds(duration)
         
-        if durationInSeconds > 180 {
-            throw NSError(
-                domain: "VideoUpload",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Video must be 3 minutes or shorter. Please trim your video or choose a shorter one."]
-            )
-        }
+        return Pin(
+            id: document.documentID,
+            coordinate: coordinate,
+            incidentType: incidentType,
+            videoURL: videoURL,
+            userId: userId
+        )
     }
     
-    private func loadCachedPins() {
-        if let cachedPinsData = UserDefaults.standard.data(forKey: "CachedPins"),
-           let cachedPins = try? JSONDecoder().decode([CachedPin].self, from: cachedPinsData) {
-            self.pins = cachedPins.map { $0.toPin() }
-            self.updateFilteredPins()
+    private func loadCachedData() {
+        if let cachedData = cache.object(forKey: "pins" as NSString) as? Data,
+           let pins = try? JSONDecoder().decode([Pin].self, from: cachedData) {
+            self.pins = pins
+            updateFilteredPins()
         }
     }
     
@@ -1322,51 +1150,10 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
     
-    private func processDocument(_ document: QueryDocumentSnapshot) async throws -> Pin? {
-        let data = document.data()
-        
-        guard let latitude = data["latitude"] as? Double,
-              let longitude = data["longitude"] as? Double,
-              let typeString = data["type"] as? String,
-              let videoURL = data["videoURL"] as? String,
-              let userId = data["userID"] as? String else {
-            print("Invalid document data: \(document.documentID)")
-            return nil
-        }
-        
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        
-        let incidentType: IncidentType
-        switch typeString {
-        case "Verbal": incidentType = .verbal
-        case "Physical": incidentType = .physical
-        case "911": incidentType = .emergency
-        default:
-            print("Invalid incident type: \(typeString)")
-            return nil
-        }
-        
-        // Cache video in background if online
-        if let url = URL(string: videoURL) {
-            Task.detached {
-                try? await self.cacheVideo(from: url, key: videoURL)
-            }
-        }
-        
-        return Pin(
-            id: document.documentID,
-            coordinate: coordinate,
-            incidentType: incidentType,
-            videoURL: videoURL,
-            userId: userId
-        )
-    }
-    
-    private func loadCachedData() {
-        if let cachedData = cache.object(forKey: "pins" as NSString) as? Data,
-           let pins = try? JSONDecoder().decode([Pin].self, from: cachedData) {
-            self.pins = pins
-            updateFilteredPins()
+    private func checkAndRestartListener() {
+        if !isListenerActive {
+            print("Restarting Firestore listener...")
+            observePins()
         }
     }
     
@@ -1421,10 +1208,54 @@ class MapViewModel: NSObject, ObservableObject {
                 } else {
                     // Refresh data when connection is restored
                     self?.observePins()
+                    // Retry any failed uploads
+                    self?.retryFailedUploads()
                 }
             }
         }
         networkMonitor?.start(queue: networkQueue)
+        
+        // Add periodic connectivity check
+        Task {
+            while true {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+                if !Task.isCancelled {
+                    await checkConnectivity()
+                }
+            }
+        }
+    }
+    
+    @MainActor
+    private func checkConnectivity() {
+        guard let monitor = networkMonitor else { return }
+        
+        if monitor.currentPath.status == .satisfied {
+            // Ensure Firestore listener is active
+            if !isListenerActive {
+                observePins()
+            }
+            
+            // Retry any pending operations
+            retryFailedUploads()
+        }
+    }
+    
+    private func handleNetworkError(_ error: Error) {
+        if (error as NSError).domain == "NSURLErrorDomain" {
+            // Handle specific network errors
+            switch (error as NSError).code {
+            case -1003: // Could not find host
+                showError("Network connection issue. Please check your internet connection.")
+            case -1009: // No internet connection
+                showError("No internet connection. Using cached data.")
+                loadCachedData()
+            default:
+                showError("Network error: \(error.localizedDescription)")
+            }
+        } else {
+            showError("Error: \(error.localizedDescription)")
+        }
     }
     
     @MainActor
@@ -1453,6 +1284,217 @@ class MapViewModel: NSObject, ObservableObject {
             print("Successfully signed out")
         } catch {
             showError("Failed to sign out: \(error.localizedDescription)")
+        }
+    }
+    
+    func deletePin(_ pin: Pin) async throws {
+        // First check if user can edit this pin
+        guard await userCanEditPin(pin) else {
+            throw NSError(
+                domain: "PinDeletion",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "You can only delete pins that you created on this device"]
+            )
+        }
+        
+        // Double check authentication
+        guard let currentUserId = Auth.auth().currentUser?.uid,
+              currentUserId == pin.userId else {
+            throw NSError(
+                domain: "PinDeletion",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Authentication error"]
+            )
+        }
+        
+        // If authorized, proceed with deletion
+        if let videoURL = URL(string: pin.videoURL) {
+            let storageRef = Storage.storage().reference(forURL: videoURL.absoluteString)
+            try await storageRef.delete()
+        }
+        
+        // Delete from Firestore
+        try await FirebaseManager.shared.firestore().collection("pins").document(pin.id).delete()
+        
+        // Update local arrays on main thread
+        await MainActor.run {
+            self.pins.removeAll { $0.id == pin.id }
+            self.filteredPins.removeAll { $0.id == pin.id }
+            self.updateFilteredPins()
+        }
+    }
+    
+    func userCanEditPin(_ pin: Pin) async -> Bool {
+        guard let currentUserId = Auth.auth().currentUser?.uid else {
+            print("Cannot edit pin: User not authenticated")
+            return false
+        }
+        
+        // Check if the pin belongs to the current user
+        let canEdit = pin.userId == currentUserId
+        if !canEdit {
+            print("Cannot edit pin: Pin belongs to different user")
+        }
+        return canEdit
+    }
+    
+    nonisolated func isFilterActive(_ type: IncidentType) async -> Bool {
+        await Task { @MainActor in
+            selectedFilters.contains(type)
+        }.value
+    }
+    
+    @MainActor
+    func dropPin(for type: IncidentType) {
+        // Request fresh location to verify pin placement
+        guard locationManager.authorizationStatus == .authorizedWhenInUse ||
+              locationManager.authorizationStatus == .authorizedAlways else {
+            showError("Location access is required to verify pin placement")
+            return
+        }
+        
+        // Request a single location update
+        locationManager.requestLocation()
+        
+        guard let currentLocation = locationManager.location else {
+            showError("Unable to determine your location")
+            return
+        }
+        
+        guard let coordinate = pendingCoordinate else {
+            showError("No location selected")
+            return
+        }
+        
+        let pinLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let distance = currentLocation.distance(from: pinLocation)
+        
+        guard distance <= MAX_PIN_DISTANCE else {
+            showError("You can only drop pins within 200 feet of your location")
+            return
+        }
+        
+        currentIncidentType = type
+        
+        // Present photo picker on the main thread
+        Task { @MainActor in
+            let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            
+            switch status {
+            case .authorized, .limited:
+                var config = PHPickerConfiguration(photoLibrary: .shared())
+                config.filter = .videos
+                config.selectionLimit = 1
+                config.preferredAssetRepresentationMode = .current
+                
+                let picker = PHPickerViewController(configuration: config)
+                picker.delegate = self
+                
+                // Find the top-most view controller
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let window = windowScene.windows.first,
+                   let rootViewController = window.rootViewController {
+                    // Dismiss the current view controller first
+                    if let presentedVC = rootViewController.presentedViewController {
+                        presentedVC.dismiss(animated: true) {
+                            // Present the photo picker after dismissal
+                            rootViewController.present(picker, animated: true) {
+                                // Set this to false only after the picker is presented
+                                self.showingIncidentPicker = false
+                            }
+                        }
+                    } else {
+                        rootViewController.present(picker, animated: true) {
+                            // Set this to false only after the picker is presented
+                            self.showingIncidentPicker = false
+                        }
+                    }
+                } else {
+                    showError("Could not present video picker")
+                    currentIncidentType = nil
+                    pendingCoordinate = nil
+                    showingIncidentPicker = false
+                }
+                
+            case .denied, .restricted:
+                showError("Please allow access to your photo library in Settings to upload videos")
+                currentIncidentType = nil
+                pendingCoordinate = nil
+                showingIncidentPicker = false
+                
+            case .notDetermined:
+                showError("Photo library access is required to upload videos")
+                currentIncidentType = nil
+                pendingCoordinate = nil
+                showingIncidentPicker = false
+                
+            @unknown default:
+                showError("Unknown photo library access status")
+                currentIncidentType = nil
+                pendingCoordinate = nil
+                showingIncidentPicker = false
+            }
+        }
+    }
+    
+    @MainActor
+    private func cleanupTemporaryFiles() {
+        let tempDirectory = FileManager.default.temporaryDirectory
+        do {
+            let tempFiles = try FileManager.default.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil)
+            for file in tempFiles where file.lastPathComponent.contains("compressed_") {
+                try? FileManager.default.removeItem(at: file)
+            }
+        } catch {
+            print("Failed to cleanup temporary files: \(error.localizedDescription)")
+        }
+    }
+    
+    private func loadVideo(from provider: NSItemProvider) async throws -> URL {
+        return try await withCheckedThrowingContinuation { continuation in
+            provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                guard let originalURL = url else {
+                    continuation.resume(throwing: NSError(
+                        domain: "VideoLoad",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Invalid video file"]
+                    ))
+                    return
+                }
+                
+                do {
+                    let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    let tempFileName = "\(UUID().uuidString)_temp.mov"
+                    let tempURL = documentsDirectory.appendingPathComponent(tempFileName)
+                    
+                    if FileManager.default.fileExists(atPath: tempURL.path) {
+                        try FileManager.default.removeItem(at: tempURL)
+                    }
+                    try FileManager.default.copyItem(at: originalURL, to: tempURL)
+                    continuation.resume(returning: tempURL)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    private func checkVideoDuration(_ url: URL) async throws {
+        let asset = AVAsset(url: url)
+        let duration = try await asset.load(.duration)
+        let durationInSeconds = CMTimeGetSeconds(duration)
+        
+        if durationInSeconds > 180 {
+            throw NSError(
+                domain: "VideoUpload",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Video must be 3 minutes or shorter. Please trim your video or choose a shorter one."]
+            )
         }
     }
 }
