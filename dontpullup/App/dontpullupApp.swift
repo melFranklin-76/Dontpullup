@@ -1,21 +1,24 @@
 import SwiftUI
 import Firebase
 import FirebaseAuth
-import Network
 import FirebaseCore
 import FirebaseFirestore
+import FirebaseAnalytics
+import AVKit
 
 struct MapStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
                 // Pre-load map styles to prevent resource warnings
-                if let mapStyleURL = Bundle.main.url(forResource: "satellite", withExtension: "json") {
+                if let mapStyleURL = Bundle.main.url(forResource: "satellite", withExtension: "json", subdirectory: "MapStyles") {
                     do {
                         let _ = try Data(contentsOf: mapStyleURL)
                     } catch {
                         print("Map style loading error: \(error)")
                     }
+                } else {
+                    print("Map style file not found in MapStyles directory")
                 }
             }
     }
@@ -27,15 +30,42 @@ extension View {
     }
 }
 
+// Presentation coordinator to handle video presentation
+class PresentationCoordinator: ObservableObject {
+    @Published var isPresenting = false
+    @Published var currentPlayerViewController: AVPlayerViewController?
+    
+    func presentVideo(url: URL, from viewController: UIViewController) {
+        guard !isPresenting else { return }
+        isPresenting = true
+        
+        let player = AVPlayer(url: url)
+        let playerViewController = AVPlayerViewController()
+        playerViewController.player = player
+        currentPlayerViewController = playerViewController
+        
+        viewController.present(playerViewController, animated: true) {
+            player.play()
+        }
+    }
+    
+    func dismissCurrentVideo() {
+        currentPlayerViewController?.dismiss(animated: true) {
+            self.isPresenting = false
+            self.currentPlayerViewController = nil
+        }
+    }
+}
+
 @main
 struct DontPullUpApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var networkMonitor = NetworkMonitor()
-    @StateObject private var authState: AuthState
+    @StateObject private var authState = AuthState()
     
     init() {
-        // Initialize auth state
-        _authState = StateObject(wrappedValue: AuthState())
+        // Configure Firebase first
+        FirebaseManager.shared.configure()
     }
     
     var body: some Scene {
@@ -69,23 +99,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private var firestoreListener: ListenerRegistration?
     
     func application(_ application: UIApplication,
-                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         print("AppDelegate: Application launching")
         
-        // Basic Firebase configuration without App Check
-        FirebaseApp.configure()
-        
-        // Configure Firestore for offline persistence
-        let db = Firestore.firestore()
-        let settings = FirestoreSettings()
-        settings.cacheSettings = PersistentCacheSettings()
-        settings.isSSLEnabled = true
-        db.settings = settings
-        
-        // Enable Firestore debug logging
-        Firestore.enableLogging(true)
-        
-        print("Firebase configured successfully")
         if let user = Auth.auth().currentUser {
             print("Current user ID: \(user.uid)")
         }
@@ -93,11 +109,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
     
-    // Required UIApplicationDelegate methods
     func application(_ application: UIApplication,
                     configurationForConnecting connectingSceneSession: UISceneSession,
                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        let sceneConfig = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        let sceneConfig = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         sceneConfig.delegateClass = SceneDelegate.self
         return sceneConfig
     }
@@ -108,6 +123,27 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     
     func applicationWillTerminate(_ application: UIApplication) {
         firestoreListener?.remove()
+    }
+    
+    // Required for Firebase Analytics
+    func application(_ application: UIApplication, open url: URL,
+                    options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+        return true
+    }
+    
+    // Required for Firebase Push Notifications
+    func application(_ application: UIApplication,
+                    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    }
+    
+    func application(_ application: UIApplication,
+                    didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    }
+    
+    func application(_ application: UIApplication,
+                    didReceiveRemoteNotification userInfo: [AnyHashable : Any],
+                    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        completionHandler(.noData)
     }
 }
 
@@ -140,40 +176,5 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     
     func sceneDidEnterBackground(_ scene: UIScene) {
         print("SceneDelegate: Scene did enter background")
-    }
-}
-
-class AuthState: ObservableObject {
-    @Published var isSignedIn: Bool = false
-    @Published var isInitialized: Bool = false
-    private var handle: AuthStateDidChangeListenerHandle?
-    
-    init() {
-        print("AuthState: Initializing authentication state observer")
-        handle = Auth.auth().addStateDidChangeListener { [weak self] (auth: Auth, user: User?) in
-            guard let self = self else { return }
-            
-            if !self.isInitialized {
-                self.isInitialized = true
-                print("AuthState: Initial state received")
-            }
-            
-            self.isSignedIn = user != nil
-            if let user = user {
-                print("AuthState: User signed in - ID: \(user.uid)")
-                if let email = user.email {
-                    print("AuthState: User email: \(email)")
-                }
-            } else {
-                print("AuthState: User signed out")
-            }
-        }
-    }
-    
-    deinit {
-        if let handle = handle {
-            print("AuthState: Removing auth state listener")
-            Auth.auth().removeStateDidChangeListener(handle)
-        }
     }
 }

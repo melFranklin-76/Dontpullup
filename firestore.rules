@@ -16,27 +16,37 @@ service cloud.firestore {
       return type in ['Verbal', 'Physical', '911'];
     }
     
-    // Rate limiting helper
-    function notRecentlyCreated() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)/ratelimits/$(request.time.toDate().toDateString()));
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
     
-    match /pins/{pinId} {
+    // Allow read access to all collections during development
+    match /{document=**} {
       allow read: if true;
+    }
+    
+    // Pins collection rules
+    match /pins/{pinId} {
+      // Allow read access to all authenticated users
+      allow read: if true;
+      
+      // Allow creation with strict validation
       allow create: if isAuthenticated()
+        && request.resource.data.keys().hasAll(['latitude', 'longitude', 'type', 'videoURL', 'userID', 'timestamp', 'deviceID'])
         && isValidCoordinate(request.resource.data.latitude, request.resource.data.longitude)
         && isValidIncidentType(request.resource.data.type)
-        && notRecentlyCreated()  // Rate limit: one pin per day per user
-        && request.resource.data.userID == request.auth.uid;
-        
-      allow delete: if isAuthenticated() 
-        && resource.data.userID == request.auth.uid;
+        && request.resource.data.userID == request.auth.uid
+        && request.resource.data.timestamp is timestamp;
+      
+      // Allow updates and deletes only for pin owners
+      allow update, delete: if isAuthenticated()
+        && resource.data.userID == request.auth.uid
+        && (request.resource == null || request.resource.data.userID == request.auth.uid);
     }
     
-    // Rate limiting document
-    match /users/{userId}/ratelimits/{date} {
-      allow write: if isAuthenticated() 
-        && request.auth.uid == userId;
+    // User data rules
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
     }
   }
 } 

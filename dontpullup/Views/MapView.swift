@@ -181,7 +181,7 @@ struct MapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation is MKUserLocation {
                 let identifier = "UserLocation"
-                var view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? MKAnnotationView
+                var view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
                 
                 if view == nil {
                     view = MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)

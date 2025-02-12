@@ -11,6 +11,7 @@
 		1E2970642D325BC40095E62E /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 1E2970632D325BC40095E62E /* FirebaseFirestore */; };
 		1E2970662D325BC40095E62E /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 1E2970652D325BC40095E62E /* FirebaseStorage */; };
 		1E7D831C2D348B3600CE0DB1 /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 1E7D831B2D348B3600CE0DB1 /* FirebaseDatabase */; };
+		1E7D831E2D348B3600CE0DB1 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 1E7D831D2D348B3600CE0DB1 /* FirebaseAnalytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,7 +22,7 @@
 		1E7D83052D34858900CE0DB1 /* Exceptions for "dontpullup" folder in "dontpullup" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
+				Resources/Info.plist,
 			);
 			target = 1E29704E2D3258B80095E62E /* dontpullup */;
 		};
@@ -46,6 +47,7 @@
 				1E2970622D325BC40095E62E /* FirebaseAuth in Frameworks */,
 				1E2970642D325BC40095E62E /* FirebaseFirestore in Frameworks */,
 				1E7D831C2D348B3600CE0DB1 /* FirebaseDatabase in Frameworks */,
+				1E7D831E2D348B3600CE0DB1 /* FirebaseAnalytics in Frameworks */,
 				1E2970662D325BC40095E62E /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -93,6 +95,7 @@
 				1E2970632D325BC40095E62E /* FirebaseFirestore */,
 				1E2970652D325BC40095E62E /* FirebaseStorage */,
 				1E7D831B2D348B3600CE0DB1 /* FirebaseDatabase */,
+				1E7D831D2D348B3600CE0DB1 /* FirebaseAnalytics */,
 			);
 			productName = dontpullup;
 			productReference = 1E29704F2D3258B80095E62E /* dontpullup.app */;
@@ -282,13 +285,14 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = dontpullup/dontpullup.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"dontpullup/Preview Content\"";
 				DEVELOPMENT_TEAM = U7DNT8RZUL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = dontpullup/Info.plist;
+				INFOPLIST_FILE = dontpullup/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Dont'PullUp";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture videos for pins.";
@@ -323,13 +327,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = dontpullup/dontpullup.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"dontpullup/Preview Content\"";
 				DEVELOPMENT_TEAM = U7DNT8RZUL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = dontpullup/Info.plist;
+				INFOPLIST_FILE = dontpullup/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Dont'PullUp";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.shopping";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture videos for pins.";
@@ -411,6 +416,10 @@
 		1E7D831B2D348B3600CE0DB1 /* FirebaseDatabase */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FirebaseDatabase;
+		};
+		1E7D831D2D348B3600CE0DB1 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FirebaseAnalytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

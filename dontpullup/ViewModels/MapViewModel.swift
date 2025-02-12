@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
+import Network
 
 @preconcurrency import PhotosUI
 
@@ -63,6 +64,8 @@ class MapViewModel: NSObject, ObservableObject {
     private let cache = NSCache<NSString, NSData>()
     private let fileManager = FileManager.default
     private var offlineListener: ListenerRegistration?
+    private var networkMonitor: NWPathMonitor?
+    private let networkQueue = DispatchQueue(label: "NetworkMonitor")
     
     // MARK: - Initialization
     override init() {
@@ -78,8 +81,9 @@ class MapViewModel: NSObject, ObservableObject {
         // Configure location manager
         setupLocationManager()
         
-        // Setup offline support
+        // Setup offline support and start observing pins
         setupOfflineSupport()
+        observePins() // Explicitly call observePins
         
         // Load cached data if available
         loadCachedData()
@@ -101,9 +105,13 @@ class MapViewModel: NSObject, ObservableObject {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+        
+        // Setup network monitoring
+        setupNetworkMonitoring()
     }
     
     deinit {
+        networkMonitor?.cancel()
         uploadTasks.forEach { $0.cancel() }
         NotificationCenter.default.removeObserver(self)
     }
@@ -111,24 +119,20 @@ class MapViewModel: NSObject, ObservableObject {
     @objc private func handleAppBackground() {
         // Request background time for uploads
         if !uploadQueue.isEmpty || isUploadInProgress {
-            var backgroundTaskID = UIBackgroundTaskIdentifier.invalid
-            
-            backgroundTaskID = UIApplication.shared.beginBackgroundTask {
+            let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "ProcessUploadQueue") { [backgroundTask = UIBackgroundTaskIdentifier.invalid] in
                 // End the task if the background task expires
-                if backgroundTaskID != .invalid {
-                    UIApplication.shared.endBackgroundTask(backgroundTaskID)
-                    backgroundTaskID = .invalid
+                if backgroundTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTask)
                 }
             }
             
-            if backgroundTaskID != .invalid {
+            if backgroundTask != .invalid {
                 // Continue processing upload queue
                 processUploadQueue()
                 
                 // End the task when done
-                if backgroundTaskID != .invalid {
-                    UIApplication.shared.endBackgroundTask(backgroundTaskID)
-                    backgroundTaskID = .invalid
+                if backgroundTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTask)
                 }
             }
         }
@@ -142,20 +146,32 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func processUploadQueue() {
-        guard !isUploadInProgress, !uploadQueue.isEmpty else { return }
+        guard !uploadQueue.isEmpty else { return }
+        
+        // If already uploading, just return - the next item will be processed after current upload finishes
+        guard !isUploadInProgress else { return }
         
         let (videoURL, coordinate, incidentType) = uploadQueue.removeFirst()
         
         Task {
             do {
                 isUploadInProgress = true
+                isUploading = true
+                uploadProgress = 0.01
+                
                 pendingCoordinate = coordinate
                 currentIncidentType = incidentType
                 
                 try await processAndUploadVideo(from: videoURL)
                 
-                // Success - reset retry count and process next in queue
-                currentRetryCount = 0
+                // Reset states after successful upload
+                isUploadInProgress = false
+                isUploading = false
+                uploadProgress = 0
+                pendingCoordinate = nil
+                currentIncidentType = nil
+                
+                // Process next item in queue if any
                 if !uploadQueue.isEmpty {
                     processUploadQueue()
                 }
@@ -175,6 +191,8 @@ class MapViewModel: NSObject, ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 self.uploadQueue.insert((videoURL, coordinate, incidentType), at: 0)
                 self.isUploadInProgress = false
+                self.isUploading = false
+                self.uploadProgress = 0
                 self.processUploadQueue()
             }
         } else {
@@ -182,6 +200,8 @@ class MapViewModel: NSObject, ObservableObject {
             showError("Upload failed after multiple attempts: \(error.localizedDescription)")
             currentRetryCount = 0
             isUploadInProgress = false
+            isUploading = false
+            uploadProgress = 0
             
             // Save failed upload for later retry
             saveFailedUpload(videoURL: videoURL, coordinate: coordinate, incidentType: incidentType)
@@ -238,10 +258,24 @@ class MapViewModel: NSObject, ObservableObject {
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.allowsBackgroundLocationUpdates = false
+        // Stop continuous updates
+        locationManager.pausesLocationUpdatesAutomatically = true
         
-        // Request location permissions if not determined
-        if locationManager.authorizationStatus == .notDetermined {
+        // Only check initial authorization status
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            print("Location authorization not determined, requesting...")
             locationManager.requestWhenInUseAuthorization()
+        case .restricted, .denied:
+            print("Location access denied or restricted")
+            showError("Location access is required to use this app. Please enable it in Settings.")
+        case .authorizedWhenInUse, .authorizedAlways:
+            print("Location access authorized")
+            // Only get initial location
+            locationManager.requestLocation()
+        @unknown default:
+            print("Unknown location authorization status")
+            showError("Unknown location authorization status")
         }
     }
     
@@ -257,29 +291,12 @@ class MapViewModel: NSObject, ObservableObject {
         
         switch authStatus {
         case .authorizedWhenInUse, .authorizedAlways:
-            if let location = locationManager.location {
-                let region = MKCoordinateRegion(
-                    center: location.coordinate,
-                    span: MapConstants.defaultSpan
-                )
-                print("Centering on location: \(location.coordinate)")
-                mapRegion = region
-                
-                // Request a single update to ensure accuracy
-                locationManager.requestLocation()
-            } else {
-                print("No location available, requesting update")
-                locationManager.requestLocation()
-                locationManager.startUpdatingLocation()
-                
-                // Stop updating after a brief period if no location is found
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                    self?.locationManager.stopUpdatingLocation()
-                }
-            }
+            // Request a single location update
+            locationManager.requestLocation()
         case .denied, .restricted:
-            showError("Location access is required to use this app. Please enable it in Settings.")
+            showError("Location access is required. Please enable it in Settings.")
         case .notDetermined:
+            print("Location authorization not determined, requesting...")
             locationManager.requestWhenInUseAuthorization()
         @unknown default:
             showError("Unknown location authorization status")
@@ -317,7 +334,6 @@ class MapViewModel: NSObject, ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             let metadata = StorageMetadata()
             metadata.contentType = "video/mp4"
-            // Add custom metadata for security rules
             metadata.customMetadata = [
                 "userId": Auth.auth().currentUser?.uid ?? "",
                 "timestamp": "\(Date().timeIntervalSince1970)",
@@ -325,46 +341,50 @@ class MapViewModel: NSObject, ObservableObject {
             ]
             
             let uploadTask = storageRef.putFile(from: videoURL, metadata: metadata)
-            
-            // Store task reference
             uploadTasks.append(uploadTask)
             
-            // Single progress handler
+            // Ensure upload state is visible
+            Task { @MainActor in
+                self.isUploading = true
+                self.uploadProgress = 0.01 // Show initial progress
+            }
+            
+            // Progress handler on main thread
             let progressHandle = uploadTask.observe(.progress) { [weak self] snapshot in
                 guard let progress = snapshot.progress else { return }
                 Task { @MainActor in
-                    self?.uploadProgress = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                    guard let self = self else { return }
+                    // Only update if we're still uploading
+                    if self.isUploading {
+                        let newProgress = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                        // Ensure progress never goes backwards
+                        if newProgress > self.uploadProgress {
+                            self.uploadProgress = newProgress
+                        }
+                        print("Upload progress: \(self.uploadProgress)")
+                    }
                 }
             }
             
-            // Completion handler
+            // Success handler
             uploadTask.observe(.success) { [weak self] _ in
                 Task {
                     do {
                         let downloadURL = try await storageRef.downloadURL()
+                        
+                        await MainActor.run {
+                            if let self = self, self.isUploading {
+                                self.uploadProgress = 1.0
+                            }
+                        }
+                        
                         continuation.resume(returning: downloadURL.absoluteString)
                     } catch {
-                        // Handle specific error cases
-                        if let storageError = error as? StorageError {
-                            switch storageError {
-                            case .unauthorized:
-                                continuation.resume(throwing: NSError(
-                                    domain: "VideoUpload",
-                                    code: -1,
-                                    userInfo: [NSLocalizedDescriptionKey: "You are not authorized to upload videos. Please sign in again."]
-                                ))
-                            case .quotaExceeded:
-                                continuation.resume(throwing: NSError(
-                                    domain: "VideoUpload",
-                                    code: -2,
-                                    userInfo: [NSLocalizedDescriptionKey: "Storage quota exceeded. Please try again later."]
-                                ))
-                            default:
-                                continuation.resume(throwing: error)
-                            }
-                        } else {
-                            continuation.resume(throwing: error)
+                        await MainActor.run {
+                            self?.isUploading = false
+                            self?.uploadProgress = 0
                         }
+                        continuation.resume(throwing: error)
                     }
                     
                     await MainActor.run {
@@ -374,38 +394,44 @@ class MapViewModel: NSObject, ObservableObject {
                 }
             }
             
+            // Failure handler
             uploadTask.observe(.failure) { [weak self] snapshot in
-                if let error = snapshot.error {
-                    // Check for specific error types
-                    if let storageError = error as? StorageError,
-                       storageError.isPermissionError {
-                        // Attempt to refresh authentication
-                        Task {
-                            do {
-                                if let user = Auth.auth().currentUser {
-                                    _ = try await user.getIDTokenForcingRefresh(true)
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.isUploading = false
+                    self.uploadProgress = 0
+                    
+                    if let error = snapshot.error {
+                        if let storageError = error as? StorageError,
+                           storageError.isPermissionError {
+                            // Attempt to refresh authentication
+                            if let user = Auth.auth().currentUser {
+                                do {
+                                    let _ = try await user.getIDToken(forcingRefresh: true)
                                     // Retry upload after token refresh
-                                    self?.retryUpload(videoURL: videoURL, continuation: continuation)
-                                } else {
-                                    continuation.resume(throwing: NSError(
-                                        domain: "VideoUpload",
-                                        code: -3,
-                                        userInfo: [NSLocalizedDescriptionKey: "Authentication required. Please sign in."]
-                                    ))
+                                    self.retryUpload(videoURL: videoURL, continuation: continuation)
+                                } catch {
+                                    self.showError("Authentication failed: \(error.localizedDescription)")
+                                    continuation.resume(throwing: error)
                                 }
-                            } catch {
+                            } else {
+                                let error = NSError(
+                                    domain: "VideoUpload",
+                                    code: -3,
+                                    userInfo: [NSLocalizedDescriptionKey: "Authentication required. Please sign in."]
+                                )
+                                self.showError(error.localizedDescription)
                                 continuation.resume(throwing: error)
                             }
+                        } else {
+                            self.showError("Upload failed: \(error.localizedDescription)")
+                            continuation.resume(throwing: error)
                         }
-                    } else {
-                        continuation.resume(throwing: error)
                     }
+                    
+                    self.uploadTasks.removeAll { $0 === uploadTask }
+                    uploadTask.removeObserver(withHandle: progressHandle)
                 }
-                
-                Task { @MainActor in
-                    self?.uploadTasks.removeAll { $0 === uploadTask }
-                }
-                uploadTask.removeObserver(withHandle: progressHandle)
             }
         }
     }
@@ -433,18 +459,24 @@ class MapViewModel: NSObject, ObservableObject {
         print("Starting video processing...")
         
         guard let currentUserId = Auth.auth().currentUser?.uid else {
-            throw NSError(domain: "VideoUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+            let error = NSError(domain: "VideoUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+            print("Authentication error: \(error)")
+            throw error
         }
         
         guard let coordinate = pendingCoordinate,
               let incidentType = currentIncidentType else {
-            throw NSError(domain: "VideoUpload", code: -2, userInfo: [NSLocalizedDescriptionKey: "Missing location or incident type"])
+            let error = NSError(domain: "VideoUpload", code: -2, userInfo: [NSLocalizedDescriptionKey: "Missing location or incident type"])
+            print("Missing data error: \(error)")
+            throw error
         }
         
-        // Get device identifier
-        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        await MainActor.run {
+            isUploading = true
+            uploadProgress = 0
+        }
         
-        // Generate a unique filename
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
         let timestamp = Int(Date().timeIntervalSince1970)
         let filename = "video_\(UUID().uuidString)_\(timestamp)_\(currentUserId)_\(deviceId).mp4"
         let storageRef = Storage.storage().reference().child("videos/\(filename)")
@@ -457,15 +489,17 @@ class MapViewModel: NSObject, ObservableObject {
             let downloadURL = try await uploadVideo(compressedURL, to: storageRef)
             print("Upload successful, creating Firestore document...")
             
+            let pinId = UUID().uuidString
             let pin = Pin(
-                id: UUID().uuidString,
+                id: pinId,
                 coordinate: coordinate,
                 incidentType: incidentType,
                 videoURL: downloadURL,
                 userId: currentUserId
             )
             
-            try await Firestore.firestore().collection("pins").document(pin.id).setData([
+            // Create the document data
+            let pinData: [String: Any] = [
                 "latitude": pin.coordinate.latitude,
                 "longitude": pin.coordinate.longitude,
                 "type": pin.incidentType.firestoreType,
@@ -473,50 +507,94 @@ class MapViewModel: NSObject, ObservableObject {
                 "timestamp": FieldValue.serverTimestamp(),
                 "userID": pin.userId,
                 "deviceID": deviceId
-            ])
+            ]
             
-            print("Firestore document created successfully")
+            print("Attempting to create Firestore document with ID: \(pinId)")
             
+            do {
+                try await FirebaseManager.shared.firestore().collection("pins").document(pinId).setData(pinData)
+                print("Firestore document created successfully")
+                
+                await MainActor.run {
+                    self.pins.append(pin)
+                    self.updateFilteredPins()
+                    self.isUploading = false
+                    self.uploadProgress = 0
+                    self.pendingCoordinate = nil
+                    self.currentIncidentType = nil
+                }
+                
+                // Cleanup files
+                try? FileManager.default.removeItem(at: compressedURL)
+                if compressedURL != videoURL {
+                    try? FileManager.default.removeItem(at: videoURL)
+                }
+            } catch let firestoreError {
+                print("Firestore document creation failed: \(firestoreError)")
+                // Try to delete the uploaded video since document creation failed
+                try? await storageRef.delete()
+                throw firestoreError
+            }
+        } catch let uploadError {
+            print("Error during upload process: \(uploadError)")
             await MainActor.run {
-                pins.append(pin)
-                updateFilteredPins()
                 isUploading = false
                 uploadProgress = 0
-                pendingCoordinate = nil
-                currentIncidentType = nil
+                showError("Upload failed: \(uploadError.localizedDescription)")
             }
-            
-            // Cleanup files
-            try? FileManager.default.removeItem(at: compressedURL)
-            if compressedURL != videoURL {
-                try? FileManager.default.removeItem(at: videoURL)
-            }
-        } catch {
-            print("Error during upload process: \(error)")
             // Cleanup on error
             try? FileManager.default.removeItem(at: compressedURL)
             if compressedURL != videoURL {
                 try? FileManager.default.removeItem(at: videoURL)
             }
-            throw error
+            throw uploadError
         }
     }
     
     @MainActor
     private func compressVideo(at url: URL) async throws -> URL {
+        print("Starting video compression...")
+        
+        // Verify input video exists and is readable
+        guard FileManager.default.fileExists(atPath: url.path),
+              FileManager.default.isReadableFile(atPath: url.path) else {
+            throw NSError(
+                domain: "VideoCompression",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Input video file is not accessible"]
+            )
+        }
+        
         let asset = AVAsset(url: url)
         
+        // Verify asset is valid and has video track
+        guard try await asset.load(.tracks).count > 0,
+              try try await asset.loadTracks(withMediaType: .video).count > 0 else {
+            throw NSError(
+                domain: "VideoCompression",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid video file or no video track found"]
+            )
+        }
+        
+        // Create unique output path
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp4")
         
-        // Create export session on the main actor
+        // Remove any existing file at output path
+        try? FileManager.default.removeItem(at: outputURL)
+        
+        // Create export session
         guard let exportSession = AVAssetExportSession(
             asset: asset,
             presetName: AVAssetExportPresetMediumQuality
         ) else {
-            throw NSError(domain: "VideoCompression", code: -1, 
-                         userInfo: [NSLocalizedDescriptionKey: "Could not create export session"])
+            throw NSError(
+                domain: "VideoCompression",
+                code: -3,
+                userInfo: [NSLocalizedDescriptionKey: "Could not create export session"]
+            )
         }
         
         // Configure export session
@@ -524,47 +602,75 @@ class MapViewModel: NSObject, ObservableObject {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
-        // Capture all necessary values before the continuation to avoid Sendable issues
-        let outputURLCopy = outputURL
-        let status = { exportSession.status }
-        let error = { exportSession.error }
+        // Set maximum duration if needed (e.g., 60 seconds)
+        let duration = try await asset.load(.duration)
+        if duration.seconds > 60 {
+            exportSession.timeRange = CMTimeRangeMake(
+                start: .zero,
+                duration: CMTime(seconds: 60, preferredTimescale: 600)
+            )
+        }
+        
+        print("Compressing video...")
         
         // Use async/await for export operation
         return try await withCheckedThrowingContinuation { continuation in
             exportSession.exportAsynchronously {
-                switch status() {
+                switch exportSession.status {
                 case .completed:
-                    // Check if the compressed file is actually smaller
                     do {
-                        let compressedSize = try FileManager.default.attributesOfItem(atPath: outputURLCopy.path)[.size] as? Int64 ?? 0
+                        // Verify output file exists
+                        guard FileManager.default.fileExists(atPath: outputURL.path) else {
+                            continuation.resume(throwing: NSError(
+                                domain: "VideoCompression",
+                                code: -4,
+                                userInfo: [NSLocalizedDescriptionKey: "Compressed file not found"]
+                            ))
+                            return
+                        }
+                        
+                        // Check if the compressed file is actually smaller
+                        let compressedSize = try FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int64 ?? 0
                         let originalSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64 ?? 0
+                        
+                        print("Original size: \(originalSize), Compressed size: \(compressedSize)")
                         
                         if compressedSize >= originalSize {
                             // If compression didn't help, use the original file
-                            try? FileManager.default.removeItem(at: outputURLCopy)
+                            try? FileManager.default.removeItem(at: outputURL)
+                            print("Using original file as compression did not reduce size")
                             continuation.resume(returning: url)
                         } else {
-                            continuation.resume(returning: outputURLCopy)
+                            print("Using compressed file")
+                            continuation.resume(returning: outputURL)
                         }
                     } catch {
+                        print("Error checking file sizes: \(error)")
                         continuation.resume(throwing: error)
                     }
+                    
                 case .failed:
-                    continuation.resume(throwing: error() ?? NSError(
+                    let error = exportSession.error ?? NSError(
                         domain: "VideoCompression",
-                        code: -1,
+                        code: -5,
                         userInfo: [NSLocalizedDescriptionKey: "Export failed with unknown error"]
-                    ))
+                    )
+                    print("Export failed: \(error)")
+                    continuation.resume(throwing: error)
+                    
                 case .cancelled:
+                    print("Export cancelled")
                     continuation.resume(throwing: NSError(
                         domain: "VideoCompression",
-                        code: -2,
+                        code: -6,
                         userInfo: [NSLocalizedDescriptionKey: "Export was cancelled"]
                     ))
+                    
                 default:
+                    print("Export failed with status: \(exportSession.status.rawValue)")
                     continuation.resume(throwing: NSError(
                         domain: "VideoCompression",
-                        code: -3,
+                        code: -7,
                         userInfo: [NSLocalizedDescriptionKey: "Export failed with unknown status"]
                     ))
                 }
@@ -573,17 +679,19 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func observePins() {
-        let db = Firestore.firestore()
-        let settings = FirestoreSettings()
-        settings.cacheSettings = PersistentCacheSettings()
-        db.settings = settings
+        print("Setting up Firestore pins listener...")
+        let db = FirebaseManager.shared.firestore()
         
-        // Setup offline persistence
+        // Remove existing listener if any
+        offlineListener?.remove()
+        
+        // Setup offline persistence with real-time updates
         offlineListener = db.collection("pins")
             .addSnapshotListener(includeMetadataChanges: true) { [weak self] snapshot, error in
                 guard let self = self else { return }
                 
                 if let error = error {
+                    print("Firestore error: \(error.localizedDescription)")
                     if (error as NSError).domain == "FIRFirestoreErrorDomain" && 
                        (error as NSError).code == 8 { // Unavailable error
                         // Network error - use cached data and notify user
@@ -601,11 +709,7 @@ class MapViewModel: NSObject, ObservableObject {
                 
                 // Check if data is from cache
                 let isFromCache = snapshot.metadata.isFromCache
-                if isFromCache {
-                    print("Loading pins from cache")
-                } else {
-                    print("Loading pins from server")
-                }
+                print("Loading pins - From cache: \(isFromCache)")
                 
                 Task {
                     do {
@@ -663,9 +767,7 @@ class MapViewModel: NSObject, ObservableObject {
                         }
                         
                         await MainActor.run {
-                            if newPins.isEmpty && !isFromCache {
-                                self.showError("No pins found in your area")
-                            }
+                            print("Updating pins - Count: \(newPins.count)")
                             self.pins = newPins
                             self.updateFilteredPins()
                             self.cachePins(newPins)
@@ -677,6 +779,7 @@ class MapViewModel: NSObject, ObservableObject {
                     }
                 }
             }
+        print("Firestore pins listener setup complete")
     }
     
     func deletePin(_ pin: Pin) async throws {
@@ -706,7 +809,7 @@ class MapViewModel: NSObject, ObservableObject {
         }
         
         // Delete from Firestore
-        try await Firestore.firestore().collection("pins").document(pin.id).delete()
+        try await FirebaseManager.shared.firestore().collection("pins").document(pin.id).delete()
         
         // Update local arrays on main thread
         await MainActor.run {
@@ -908,9 +1011,28 @@ class MapViewModel: NSObject, ObservableObject {
     
     // MARK: - Cache Management
     private func setupCacheDirectory() {
-        let cacheDir = getCacheDirectory()
-        if !fileManager.fileExists(atPath: cacheDir.path) {
-            try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        do {
+            var cacheDir = getCacheDirectory()
+            if !fileManager.fileExists(atPath: cacheDir.path) {
+                try fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true, attributes: nil)
+                print("Cache directory created successfully at: \(cacheDir.path)")
+            }
+            
+            // Set directory attributes to prevent FileProvider bookmarking
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            try cacheDir.setResourceValues(resourceValues)
+            
+        } catch {
+            print("Error setting up cache directory: \(error.localizedDescription)")
+            // Create a backup cache directory in case of failure
+            let backupCacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("VideoCache_Backup")
+            do {
+                try fileManager.createDirectory(at: backupCacheDir, withIntermediateDirectories: true, attributes: nil)
+                print("Backup cache directory created at: \(backupCacheDir.path)")
+            } catch {
+                print("Critical error: Failed to create backup cache directory: \(error.localizedDescription)")
+            }
         }
         cleanupOldCache()
     }
@@ -918,39 +1040,58 @@ class MapViewModel: NSObject, ObservableObject {
     private func cleanupOldCache() {
         Task.detached {
             let cacheDir = await self.getCacheDirectory()
-            let resourceKeys: [URLResourceKey] = [.creationDateKey, .totalFileAllocatedSizeKey]
+            let resourceKeys: Set<URLResourceKey> = [.creationDateKey, .totalFileAllocatedSizeKey, .isExcludedFromBackupKey]
             
             guard let fileURLs = try? FileManager.default.contentsOfDirectory(at: cacheDir,
-                                                                            includingPropertiesForKeys: resourceKeys,
+                                                                            includingPropertiesForKeys: Array(resourceKeys),
                                                                             options: .skipsHiddenFiles) else {
                 return
             }
             
             let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+            let maxCacheSize: UInt64 = 500 * 1024 * 1024 // 500MB
+            var totalSize: UInt64 = 0
             
             for fileURL in fileURLs {
-                guard let resourceValues = try? fileURL.resourceValues(forKeys: Set(resourceKeys)),
-                      let creationDate = resourceValues.creationDate else {
+                guard let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys),
+                      let creationDate = resourceValues.creationDate,
+                      let fileSize = resourceValues.totalFileAllocatedSize else {
                     continue
                 }
                 
-                // Remove files older than a week or if we're over the cache limit
-                if creationDate < oneWeekAgo {
+                totalSize += UInt64(fileSize)
+                
+                // Remove files that are:
+                // 1. Older than a week
+                // 2. Not excluded from backup
+                // 3. If we're over the cache size limit
+                if creationDate < oneWeekAgo || 
+                   !(resourceValues.isExcludedFromBackup ?? false) ||
+                   totalSize > maxCacheSize {
                     try? FileManager.default.removeItem(at: fileURL)
+                    totalSize -= UInt64(fileSize)
                 }
             }
         }
     }
     
     private func getCacheDirectory() -> URL {
-        let fileManager = FileManager.default
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        let cacheDir = paths[0].appendingPathComponent("VideoCache")
+        var cacheDir = paths[0].appendingPathComponent("VideoCache", isDirectory: true)
         
-        // Create cache directory if it doesn't exist
-        if !fileManager.fileExists(atPath: cacheDir.path) {
-            try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        do {
+            if !fileManager.fileExists(atPath: cacheDir.path) {
+                try fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true, attributes: nil)
+                
+                // Set directory attributes
+                var resourceValues = URLResourceValues()
+                resourceValues.isExcludedFromBackup = true
+                try cacheDir.setResourceValues(resourceValues)
+            }
+        } catch {
+            print("Error creating cache directory: \(error.localizedDescription)")
         }
+        
         return cacheDir
     }
     
@@ -963,78 +1104,84 @@ class MapViewModel: NSObject, ObservableObject {
     func cacheVideo(from url: URL, key: String) async throws {
         print("Attempting to cache video for key: \(key)")
         
-        // Create a safe filename by hashing the key
-        let safeFilename = String(abs(key.hashValue)) + ".mp4"
+        let maxRetries = 3
+        var currentRetry = 0
         
-        let fileManager = FileManager.default
-        let cacheDirectory = try fileManager.url(for: .cachesDirectory, 
-                                               in: .userDomainMask, 
-                                               appropriateFor: nil, 
-                                               create: true)
-        let fileURL = cacheDirectory.appendingPathComponent(safeFilename)
-        
-        // Check if video is already cached
-        if fileManager.fileExists(atPath: fileURL.path) {
-            print("Video already exists in cache at: \(fileURL.path)")
-            return
-        }
-        
-        print("Downloading video to cache...")
-        
-        // Create a URLSession with a longer timeout and better configuration
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 300 // 5 minutes
-        configuration.timeoutIntervalForResource = 300 // 5 minutes
-        configuration.waitsForConnectivity = true
-        configuration.allowsExpensiveNetworkAccess = true
-        configuration.allowsConstrainedNetworkAccess = true
-        let session = URLSession(configuration: configuration)
-        
-        do {
-            let (downloadedURL, response) = try await session.download(from: url)
-            
-            // Handle different types of responses
-            if let httpResponse = response as? HTTPURLResponse {
-                switch httpResponse.statusCode {
-                case 200...299:
-                    // Success case - proceed with caching
-                    if fileManager.fileExists(atPath: fileURL.path) {
-                        try fileManager.removeItem(at: fileURL)
-                    }
-                    try fileManager.moveItem(at: downloadedURL, to: fileURL)
-                    
-                    print("Successfully cached video at: \(fileURL)")
-                    
-                    // Store in memory cache
-                    if let data = try? Data(contentsOf: fileURL) {
-                        cache.setObject(data as NSData, forKey: key as NSString)
-                        print("Video also stored in memory cache")
-                    }
-                case 401, 403:
-                    throw NSError(domain: "VideoCache",
-                                code: httpResponse.statusCode,
-                                userInfo: [NSLocalizedDescriptionKey: "Authentication error"])
-                case 404:
-                    throw NSError(domain: "VideoCache",
-                                code: httpResponse.statusCode,
-                                userInfo: [NSLocalizedDescriptionKey: "Video not found"])
-                default:
-                    throw NSError(domain: "VideoCache",
-                                code: httpResponse.statusCode,
-                                userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
+        while currentRetry < maxRetries {
+            do {
+                // Create a safe filename by hashing the key
+                let safeFilename = String(abs(key.hashValue)) + ".mp4"
+                
+                let fileManager = FileManager.default
+                let cacheDirectory = try fileManager.url(for: .cachesDirectory, 
+                                                       in: .userDomainMask, 
+                                                       appropriateFor: nil, 
+                                                       create: true)
+                let fileURL = cacheDirectory.appendingPathComponent(safeFilename)
+                
+                // Check if video is already cached
+                if fileManager.fileExists(atPath: fileURL.path) {
+                    print("Video already exists in cache at: \(fileURL.path)")
+                    return
                 }
-            } else {
-                throw NSError(domain: "VideoCache",
-                            code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
+                
+                print("Downloading video to cache...")
+                
+                // Create a URLSession with a longer timeout and better configuration
+                let configuration = URLSessionConfiguration.default
+                configuration.timeoutIntervalForRequest = 300 // 5 minutes
+                configuration.timeoutIntervalForResource = 300 // 5 minutes
+                configuration.waitsForConnectivity = true
+                configuration.allowsExpensiveNetworkAccess = true
+                configuration.allowsConstrainedNetworkAccess = true
+                let session = URLSession(configuration: configuration)
+                
+                let (downloadedURL, response) = try await session.download(from: url)
+                
+                // Handle different types of responses
+                if let httpResponse = response as? HTTPURLResponse {
+                    switch httpResponse.statusCode {
+                    case 200...299:
+                        // Success case - proceed with caching
+                        if fileManager.fileExists(atPath: fileURL.path) {
+                            try fileManager.removeItem(at: fileURL)
+                        }
+                        try fileManager.moveItem(at: downloadedURL, to: fileURL)
+                        
+                        print("Successfully cached video at: \(fileURL)")
+                        
+                        // Store in memory cache
+                        if let data = try? Data(contentsOf: fileURL) {
+                            cache.setObject(data as NSData, forKey: key as NSString)
+                            print("Video also stored in memory cache")
+                        }
+                        return
+                    case 401, 403:
+                        throw NSError(domain: "VideoCache",
+                                    code: httpResponse.statusCode,
+                                    userInfo: [NSLocalizedDescriptionKey: "Authentication error"])
+                    case 404:
+                        throw NSError(domain: "VideoCache",
+                                    code: httpResponse.statusCode,
+                                    userInfo: [NSLocalizedDescriptionKey: "Video not found"])
+                    default:
+                        throw NSError(domain: "VideoCache",
+                                    code: httpResponse.statusCode,
+                                    userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
+                    }
+                }
+                
+            } catch {
+                currentRetry += 1
+                if currentRetry >= maxRetries {
+                    print("Failed to cache video after \(maxRetries) attempts: \(error.localizedDescription)")
+                    throw error
+                } else {
+                    print("Retry \(currentRetry) of \(maxRetries) for caching video")
+                    try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(currentRetry)) * 1_000_000_000))
+                    continue
+                }
             }
-        } catch {
-            print("Failed to cache video: \(error.localizedDescription)")
-            // Clean up any partial downloads
-            if fileManager.fileExists(atPath: fileURL.path) {
-                try? fileManager.removeItem(at: fileURL)
-            }
-            throw error
         }
     }
     
@@ -1092,15 +1239,6 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func setupOfflineSupport() {
-        // Configure Firestore settings for offline persistence using new API
-        let db = Firestore.firestore()
-        let settings = FirestoreSettings()
-        
-        // Convert size to NSNumber for Firebase API
-        let cacheSizeBytes = NSNumber(value: 100 * 1024 * 1024) // 100MB in bytes
-        settings.cacheSettings = PersistentCacheSettings(sizeBytes: cacheSizeBytes)
-        db.settings = settings
-        
         // Setup offline listener with retry logic
         setupFirestoreListener()
     }
@@ -1110,7 +1248,7 @@ class MapViewModel: NSObject, ObservableObject {
         var retryCount = 0
         
         func setupListener() {
-            offlineListener = Firestore.firestore().collection("pins")
+            offlineListener = FirebaseManager.shared.firestore().collection("pins")
                 .addSnapshotListener { [weak self] snapshot, error in
                     guard let self = self else { return }
                     
@@ -1271,6 +1409,52 @@ class MapViewModel: NSObject, ObservableObject {
             }
         }
     }
+    
+    private func setupNetworkMonitoring() {
+        networkMonitor = NWPathMonitor()
+        networkMonitor?.pathUpdateHandler = { [weak self] path in
+            let isConnected = path.status == .satisfied
+            Task { @MainActor in
+                if !isConnected {
+                    self?.showError("Network connection lost. Using cached data.")
+                    self?.loadCachedData()
+                } else {
+                    // Refresh data when connection is restored
+                    self?.observePins()
+                }
+            }
+        }
+        networkMonitor?.start(queue: networkQueue)
+    }
+    
+    @MainActor
+    func signOut() {
+        do {
+            // Cancel any ongoing uploads
+            uploadTasks.forEach { $0.cancel() }
+            uploadQueue.removeAll()
+            isUploadInProgress = false
+            isUploading = false
+            
+            // Clear local data
+            pins.removeAll()
+            filteredPins.removeAll()
+            selectedFilters.removeAll()
+            pendingCoordinate = nil
+            currentIncidentType = nil
+            
+            // Clear cached data
+            UserDefaults.standard.removeObject(forKey: "CachedPins")
+            UserDefaults.standard.removeObject(forKey: "FailedUploads")
+            
+            // Sign out from Firebase
+            try Auth.auth().signOut()
+            
+            print("Successfully signed out")
+        } catch {
+            showError("Failed to sign out: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - Location Manager Delegate
@@ -1279,6 +1463,7 @@ extension MapViewModel: CLLocationManagerDelegate {
         Task { @MainActor in
             switch manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:
+                // Only request location if we don't have one
                 if locationManager.location == nil {
                     locationManager.requestLocation()
                 }
@@ -1296,12 +1481,18 @@ extension MapViewModel: CLLocationManagerDelegate {
         guard let location = locations.first else { return }
         
         Task { @MainActor in
+            // Calculate span based on the pin drop limit
+            let pinDropSpan = MKCoordinateSpan(
+                latitudeDelta: MapConstants.pinDropLimit / 111000 * 2.5,
+                longitudeDelta: MapConstants.pinDropLimit / 111000 * 2.5
+            )
+            
             let region = MKCoordinateRegion(
                 center: location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                span: pinDropSpan
             )
             self.mapRegion = region
-            print("Location updated: \(location.coordinate)")
+            print("Location updated: \(location.coordinate) with zoom level for 200ft pin drop radius")
         }
     }
     
@@ -1350,13 +1541,15 @@ extension MapViewModel: PHPickerViewControllerDelegate {
                 return
             }
             
-            isUploading = true
-            uploadProgress = 0.01
-            
             do {
                 let videoURL = try await loadVideo(from: provider)
+                // Add to queue first, then process
                 uploadQueue.append((videoURL, coordinate, incidentType))
-                processUploadQueue()
+                
+                // Only start processing if not already in progress
+                if !isUploadInProgress {
+                    processUploadQueue()
+                }
             } catch {
                 showError("Failed to process video: \(error.localizedDescription)")
                 isUploading = false

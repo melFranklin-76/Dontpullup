@@ -9,9 +9,14 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
+            // Ensure MapView is the first layer
             MapView(viewModel: mapViewModel)
                 .ignoresSafeArea()
                 .preferredColorScheme(.dark)
+                .onAppear {
+                    // Request location when view appears
+                    mapViewModel.centerOnUserLocation()
+                }
             
             VStack {
                 // Top Banner
@@ -65,6 +70,7 @@ struct ContentView: View {
                             .font(.title)
                             .foregroundColor(.white)
                     }
+                    .buttonStyle(PlainButtonStyle())
                     
                     Spacer()
                     
@@ -77,6 +83,7 @@ struct ContentView: View {
                             .font(.title)
                             .foregroundColor(.white)
                     }
+                    .buttonStyle(PlainButtonStyle())
                     
                     // Edit mode toggle
                     Button(action: {
@@ -87,6 +94,7 @@ struct ContentView: View {
                             .font(.title)
                             .foregroundColor(mapViewModel.isEditMode ? .red : .white)
                     }
+                    .buttonStyle(PlainButtonStyle())
                     
                     Button(action: {
                         hapticImpact.impactOccurred()
@@ -96,6 +104,20 @@ struct ContentView: View {
                             .font(.title)
                             .foregroundColor(.white)
                     }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    // Sign out button
+                    Button(action: {
+                        mapViewModel.signOut()
+                    }) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.title)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.75))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 .padding()
             }
@@ -128,6 +150,7 @@ struct ContentView: View {
                         .shadow(color: .black.opacity(0.3), radius: 2)
                 )
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
