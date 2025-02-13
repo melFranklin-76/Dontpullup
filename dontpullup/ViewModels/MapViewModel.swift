@@ -10,7 +10,7 @@ import Foundation
 
 @preconcurrency import PhotosUI
 
-// Move the StorageError extension to file scope, before the MapViewModel class
+// Move the StorageError extension to file scope
 private extension StorageError {
     var isPermissionError: Bool {
         switch self {
@@ -18,6 +18,144 @@ private extension StorageError {
             return true
         default:
             return false
+        }
+    }
+}
+
+private enum UploadError: LocalizedError {
+    case networkError(Error)
+    case compressionError(Error)
+    case authenticationError
+    case storageError(Error)
+    case quotaExceeded
+    case invalidFile
+    
+    var errorDescription: String? {
+        switch self {
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        case .compressionError(let error):
+            return "Video compression failed: \(error.localizedDescription)"
+        case .authenticationError:
+            return "Authentication required. Please sign in again."
+        case .storageError(let error):
+            return "Storage error: \(error.localizedDescription)"
+        case .quotaExceeded:
+            return "Storage quota exceeded. Please try again later."
+        case .invalidFile:
+            return "Invalid video file. Please select another video."
+        }
+    }
+    
+    var recoverySuggestion: String? {
+        switch self {
+        case .networkError:
+            return "Check your internet connection and try again."
+        case .compressionError:
+            return "Try selecting a shorter or smaller video file."
+        case .authenticationError:
+            return "Sign in again to continue."
+        case .quotaExceeded:
+            return "Delete some old videos to free up space."
+        case .invalidFile:
+            return "Make sure the video is in a supported format."
+        default:
+            return "Try again later."
+        }
+    }
+}
+
+private enum VideoProcessingError: LocalizedError {
+    case durationTooLong
+    case compositionFailed
+    case exportFailed
+    case sizeTooLarge
+    
+    var errorDescription: String? {
+        switch self {
+        case .durationTooLong:
+            return "Video must be 60 seconds or shorter"
+        case .compositionFailed:
+            return "Failed to process video"
+        case .exportFailed:
+            return "Failed to export video"
+        case .sizeTooLarge:
+            return "Video file size is too large"
+        }
+    }
+}
+
+private enum AnalyticsEvent {
+    case uploadStarted(videoSize: Int64)
+    case uploadCompleted(duration: TimeInterval)
+    case uploadFailed(error: Error)
+    case uploadRetry(attempt: Int)
+    case pinDropped(type: IncidentType)
+    case filterChanged(filters: Set<IncidentType>)
+    case videoProcessed(originalSize: Int64, compressedSize: Int64)
+    case cacheHit(key: String)
+    case cacheMiss(key: String)
+    
+    var name: String {
+        switch self {
+        case .uploadStarted: return "video_upload_started"
+        case .uploadCompleted: return "video_upload_completed"
+        case .uploadFailed: return "video_upload_failed"
+        case .uploadRetry: return "video_upload_retry"
+        case .pinDropped: return "pin_dropped"
+        case .filterChanged: return "filter_changed"
+        case .videoProcessed: return "video_processed"
+        case .cacheHit: return "cache_hit"
+        case .cacheMiss: return "cache_miss"
+        }
+    }
+    
+    var parameters: [String: Any] {
+        switch self {
+        case .uploadStarted(let size):
+            return [
+                "video_size": size,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .uploadCompleted(let duration):
+            return [
+                "upload_duration": duration,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .uploadFailed(let error):
+            return [
+                "error_type": String(describing: type(of: error)),
+                "error_description": error.localizedDescription,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .uploadRetry(let attempt):
+            return [
+                "retry_attempt": attempt,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .pinDropped(let type):
+            return [
+                "incident_type": type.rawValue,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .filterChanged(let filters):
+            return [
+                "active_filters": filters.map { $0.rawValue },
+                "filter_count": filters.count,
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .videoProcessed(let originalSize, let compressedSize):
+            return [
+                "original_size": originalSize,
+                "compressed_size": compressedSize,
+                "compression_ratio": Double(compressedSize) / Double(originalSize),
+                "timestamp": Date().timeIntervalSince1970
+            ]
+        case .cacheHit(let key), .cacheMiss(let key):
+            return [
+                "cache_key": key,
+                "timestamp": Date().timeIntervalSince1970
+            ]
         }
     }
 }
@@ -1637,6 +1775,122 @@ private extension MKMapType {
             return .mutedStandard
         default:
             return .standard
+        }
+    }
+}
+
+private actor VideoCacheManager {
+    private let cache = NSCache<NSString, NSData>()
+    private let fileManager = FileManager.default
+    private let cacheDirectory: URL
+    
+    init() throws {
+        cacheDirectory = try fileManager.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("VideoCache")
+        
+        try setupCacheDirectory()
+        configureCache()
+        startMaintenanceTimer()
+    }
+    
+    private func setupCacheDirectory() throws {
+        if !fileManager.fileExists(atPath: cacheDirectory.path) {
+            try fileManager.createDirectory(
+                at: cacheDirectory,
+                withIntermediateDirectories: true
+            )
+        }
+        
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try cacheDirectory.setResourceValues(resourceValues)
+    }
+    
+    private func configureCache() {
+        cache.totalCostLimit = AppConfig.Cache.current.maxMemorySize
+        cache.countLimit = 100
+    }
+    
+    private func startMaintenanceTimer() {
+        Task {
+            while true {
+                try await Task.sleep(nanoseconds: 3600 * 1_000_000_000)
+                await performMaintenance()
+            }
+        }
+    }
+    
+    func store(_ data: Data, forKey key: String) throws {
+        cache.setObject(data as NSData, forKey: key as NSString)
+        let fileURL = cacheDirectory.appendingPathComponent(key)
+        try data.write(to: fileURL)
+    }
+    
+    func retrieve(_ key: String) throws -> Data? {
+        if let cachedData = cache.object(forKey: key as NSString) {
+            trackEvent(.cacheHit(key: key))
+            return cachedData as Data
+        }
+        
+        let fileURL = cacheDirectory.appendingPathComponent(key)
+        if fileManager.fileExists(atPath: fileURL.path) {
+            let data = try Data(contentsOf: fileURL)
+            cache.setObject(data as NSData, forKey: key as NSString)
+            trackEvent(.cacheHit(key: key))
+            return data
+        }
+        
+        trackEvent(.cacheMiss(key: key))
+        return nil
+    }
+    
+    private func performMaintenance() async {
+        do {
+            let contents = try fileManager.contentsOfDirectory(
+                at: cacheDirectory,
+                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey]
+            )
+            
+            var totalSize: Int64 = 0
+            let expirationDate = Date().addingTimeInterval(-AppConfig.Cache.current.expirationInterval)
+            
+            for url in contents {
+                let attributes = try url.resourceValues(forKeys: [.creationDateKey, .fileSizeKey])
+                
+                if let creationDate = attributes.creationDate,
+                   creationDate < expirationDate {
+                    try? fileManager.removeItem(at: url)
+                    continue
+                }
+                
+                if let fileSize = attributes.fileSize {
+                    totalSize += Int64(fileSize)
+                }
+            }
+            
+            if totalSize > AppConfig.Cache.current.maxDiskSize {
+                let sortedFiles = try contents.sorted {
+                    let date1 = try $0.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date()
+                    let date2 = try $1.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date()
+                    return date1 < date2
+                }
+                
+                for url in sortedFiles {
+                    try? fileManager.removeItem(at: url)
+                    let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    totalSize -= Int64(fileSize)
+                    
+                    if totalSize <= AppConfig.Cache.current.maxDiskSize {
+                        break
+                    }
+                }
+            }
+        } catch {
+            print("Cache maintenance error: \(error)")
         }
     }
 }
