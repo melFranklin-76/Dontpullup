@@ -1,8 +1,16 @@
 import SwiftUI
 
+/**
+ The HelpView struct is responsible for displaying the help and information screen.
+ It provides sections for basic usage, video guidelines, reporting incidents, managing content, safety guidelines, support & feedback, and legal information.
+ */
 struct HelpView: View {
     @Environment(\.dismiss) private var dismiss
     
+    /**
+     The body property defines the content and behavior of the help and information screen.
+     It includes a background image, a semi-transparent overlay, and a list of help sections.
+     */
     var body: some View {
         NavigationView {
             ZStack {
@@ -219,10 +227,18 @@ struct HelpView: View {
     }
 }
 
+/**
+ The HelpRow struct is responsible for displaying a row in the help and information list.
+ It includes a title and a description.
+ */
 struct HelpRow: View {
     let title: String
     let description: String
     
+    /**
+     The body property defines the content and behavior of the help row.
+     It includes the title and description of the help item.
+     */
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -238,4 +254,4 @@ struct HelpRow: View {
 
 #Preview {
     HelpView()
-} 
+}

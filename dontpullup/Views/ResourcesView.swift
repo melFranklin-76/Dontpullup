@@ -1,6 +1,14 @@
 import SwiftUI
 
+/**
+ The ResourcesView struct is responsible for displaying a list of anti-racism resources.
+ It provides sections for organizations, educational resources, legal resources, and mental health support.
+ */
 struct ResourcesView: View {
+    /**
+     The body property defines the content and behavior of the resources view.
+     It includes a background image, a semi-transparent overlay, and a scrollable list of resources.
+     */
     var body: some View {
         ZStack {
             // Background Image
@@ -111,6 +119,10 @@ struct ResourcesView: View {
     }
 }
 
+/**
+ The ResourceSection struct is responsible for displaying a section of resources.
+ It includes a title and a list of ResourceLink views.
+ */
 struct ResourceSection: View {
     let title: String
     let resources: [Resource]
@@ -130,6 +142,10 @@ struct ResourceSection: View {
     }
 }
 
+/**
+ The ResourceLink struct is responsible for displaying a link to a resource.
+ It includes the resource name, description, and a button to open the link.
+ */
 struct ResourceLink: View {
     let resource: Resource
     @Environment(\.openURL) private var openURL
@@ -153,6 +169,10 @@ struct ResourceLink: View {
     }
 }
 
+/**
+ The ActionItem struct is responsible for displaying an action item in the call to action section.
+ It includes a bullet point and the action text.
+ */
 struct ActionItem: View {
     let text: String
     
@@ -169,9 +189,13 @@ struct ActionItem: View {
     }
 }
 
+/**
+ The Resource struct represents a resource with a name, description, and link.
+ It conforms to the Identifiable protocol.
+ */
 struct Resource: Identifiable {
     let id = UUID()
     let name: String
     let description: String
     let link: String
-} 
+}

@@ -4,9 +4,7 @@ import CoreLocation
 import PhotosUI
 import AVKit
 import UniformTypeIdentifiers
-import FirebaseAuth
-import FirebaseFirestore
-import FirebaseStorage
+import FirebaseManager
 import Network
 import Foundation
 
@@ -32,6 +30,10 @@ enum MapConstants {
     )
 }
 
+/**
+ The MapViewModel class is responsible for managing the state and behavior of the map view.
+ It handles location updates, pin management, video processing, and network monitoring.
+ */
 @MainActor
 class MapViewModel: NSObject, ObservableObject {
     // MARK: - Published Properties
@@ -467,6 +469,13 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
     
+    /**
+     Processes and uploads a video to Firebase Storage.
+     Compresses the video, uploads it, and creates a corresponding Firestore document.
+     
+     - Parameter videoURL: The URL of the video to be processed and uploaded.
+     - Throws: An error if the process fails.
+     */
     private func processAndUploadVideo(from videoURL: URL) async throws {
         print("Starting video processing...")
         
@@ -536,6 +545,11 @@ class MapViewModel: NSObject, ObservableObject {
                     self.currentIncidentType = nil
                 }
                 
+                // Cache the uploaded video
+                if let url = URL(string: downloadURL) {
+                    try? await cacheVideo(from: url, key: downloadURL)
+                }
+                
                 // Cleanup files
                 try? FileManager.default.removeItem(at: compressedURL)
                 if compressedURL != videoURL {
@@ -600,7 +614,7 @@ class MapViewModel: NSObject, ObservableObject {
         // Create and configure export session
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPresetMediumQuality
+            presetName: AVAssetExportPresetHEVCHighestQuality
         ) else {
             throw NSError(
                 domain: "VideoCompression",
@@ -689,6 +703,10 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
     
+    /**
+     Observes changes in the Firestore "pins" collection.
+     Updates the local pins array and handles real-time updates.
+     */
     private func observePins() {
         print("Setting up Firestore pins listener...")
         
@@ -699,83 +717,87 @@ class MapViewModel: NSObject, ObservableObject {
         let db = FirebaseManager.shared.firestore()
         
         // Setup offline persistence with real-time updates
-        offlineListener = db.collection("pins")
-            .addSnapshotListener(includeMetadataChanges: true) { [weak self] snapshot, error in
-                guard let self = self else { return }
-                
-                if let error = error {
-                    print("Firestore error: \(error.localizedDescription)")
-                    if (error as NSError).domain == "FIRFirestoreErrorDomain" && 
-                        (error as NSError).code == 8 { // Unavailable error
-                        // Network error - use cached data and notify user
-                        self.showError("Network connection lost. Using cached data.")
+        do {
+            offlineListener = try db.collection("pins")
+                .addSnapshotListener(includeMetadataChanges: true) { [weak self] snapshot, error in
+                    guard let self = self else { return }
+                    
+                    if let error = error {
+                        print("Firestore error: \(error.localizedDescription)")
+                        if (error as NSError).domain == "FIRFirestoreErrorDomain" && 
+                            (error as NSError).code == 8 { // Unavailable error
+                            // Network error - use cached data and notify user
+                            self.showError("Network connection lost. Using cached data.")
+                            return
+                        }
+                        self.showError("Failed to fetch pins: \(error.localizedDescription)")
                         return
                     }
-                    self.showError("Failed to fetch pins: \(error.localizedDescription)")
-                    return
-                }
-                
-                guard let snapshot = snapshot else {
-                    self.showError("No data available. Please check your connection.")
-                    return
-                }
-                
-                // Check for metadata changes
-                let source = snapshot.metadata.isFromCache ? "cache" : "server"
-                print("Loading pins from \(source)")
-                
-                Task {
-                    do {
-                        // Process pins with immediate updates
-                        let newPins = try await withThrowingTaskGroup(of: Pin?.self) { group in
-                            for change in snapshot.documentChanges {
-                                group.addTask {
-                                    switch change.type {
-                                    case .added, .modified:
-                                        return try await self.processDocument(change.document)
-                                    case .removed:
-                                        // Handle removed pins
-                                        await MainActor.run {
-                                            self.pins.removeAll { $0.id == change.document.documentID }
-                                            self.updateFilteredPins()
+                    
+                    guard let snapshot = snapshot else {
+                        self.showError("No data available. Please check your connection.")
+                        return
+                    }
+                    
+                    // Check for metadata changes
+                    let source = snapshot.metadata.isFromCache ? "cache" : "server"
+                    print("Loading pins from \(source)")
+                    
+                    Task {
+                        do {
+                            // Process pins with immediate updates
+                            let newPins = try await withThrowingTaskGroup(of: Pin?.self) { group in
+                                for change in snapshot.documentChanges {
+                                    group.addTask {
+                                        switch change.type {
+                                        case .added, .modified:
+                                            return try await self.processDocument(change.document)
+                                        case .removed:
+                                            // Handle removed pins
+                                            await MainActor.run {
+                                                self.pins.removeAll { $0.id == change.document.documentID }
+                                                self.updateFilteredPins()
+                                            }
+                                            return nil
                                         }
-                                        return nil
                                     }
                                 }
+                                
+                                var processedPins: [Pin] = []
+                                for try await pin in group {
+                                    if let pin = pin {
+                                        processedPins.append(pin)
+                                    }
+                                }
+                                return processedPins
                             }
                             
-                            var processedPins: [Pin] = []
-                            for try await pin in group {
-                                if let pin = pin {
-                                    processedPins.append(pin)
+                            await MainActor.run {
+                                // Update pins array based on changes
+                                for pin in newPins {
+                                    if let index = self.pins.firstIndex(where: { $0.id == pin.id }) {
+                                        self.pins[index] = pin
+                                    } else {
+                                        self.pins.append(pin)
+                                    }
                                 }
+                                self.updateFilteredPins()
+                                self.cachePins(self.pins)
                             }
-                            return processedPins
-                        }
-                        
-                        await MainActor.run {
-                            // Update pins array based on changes
-                            for pin in newPins {
-                                if let index = self.pins.firstIndex(where: { $0.id == pin.id }) {
-                                    self.pins[index] = pin
-                                } else {
-                                    self.pins.append(pin)
-                                }
+                            
+                            self.isListenerActive = true
+                        } catch {
+                            await MainActor.run {
+                                self.showError("Failed to process pins: \(error.localizedDescription)")
                             }
-                            self.updateFilteredPins()
-                            self.cachePins(self.pins)
-                        }
-                        
-                        self.isListenerActive = true
-                    } catch {
-                        await MainActor.run {
-                            self.showError("Failed to process pins: \(error.localizedDescription)")
                         }
                     }
                 }
-            }
-        
-        print("Firestore pins listener setup complete")
+            
+            print("Firestore pins listener setup complete")
+        } catch {
+            print("Failed to add Firestore snapshot listener: \(error)")
+        }
     }
     
     private func processDocument(_ document: QueryDocumentSnapshot) async throws -> Pin? {
@@ -841,7 +863,7 @@ class MapViewModel: NSObject, ObservableObject {
     private func setupCacheDirectory() {
         do {
             var cacheDir = getCacheDirectory()
-            if !fileManager.fileExists(atPath: cacheDir.path) {
+            if (!fileManager.fileExists(atPath: cacheDir.path)) {
                 try fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true, attributes: nil)
                 print("Cache directory created successfully at: \(cacheDir.path)")
             }
@@ -1151,7 +1173,7 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func checkAndRestartListener() {
-        if !isListenerActive {
+        if (!isListenerActive) {
             print("Restarting Firestore listener...")
             observePins()
         }
@@ -1232,7 +1254,7 @@ class MapViewModel: NSObject, ObservableObject {
         
         if monitor.currentPath.status == .satisfied {
             // Ensure Firestore listener is active
-            if !isListenerActive {
+            if (!isListenerActive) {
                 observePins()
             }
             
@@ -1332,7 +1354,7 @@ class MapViewModel: NSObject, ObservableObject {
         
         // Check if the pin belongs to the current user
         let canEdit = pin.userId == currentUserId
-        if !canEdit {
+        if (!canEdit) {
             print("Cannot edit pin: Pin belongs to different user")
         }
         return canEdit

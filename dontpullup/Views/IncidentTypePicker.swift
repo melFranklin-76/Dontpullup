@@ -1,9 +1,12 @@
 import SwiftUI
 
+/// A view that allows the user to select an incident type.
 struct IncidentTypePicker: View {
+    /// The view model that manages the state and behavior of the map view.
     @ObservedObject var viewModel: MapViewModel
     @Environment(\.dismiss) var dismiss
     
+    /// The body of the view, which contains the UI elements.
     var body: some View {
         NavigationView {
             List(IncidentType.allCases, id: \.self) { type in

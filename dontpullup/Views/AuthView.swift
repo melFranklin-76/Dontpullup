@@ -2,6 +2,9 @@ import SwiftUI
 import FirebaseAuth
 import Network
 
+/**
+ The AuthBackgroundModifier struct is a view modifier that adds a background image and a semi-transparent overlay to the content.
+ */
 struct AuthBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         ZStack {
@@ -22,11 +25,20 @@ struct AuthBackgroundModifier: ViewModifier {
 }
 
 extension View {
+    /**
+     Adds the AuthBackgroundModifier to the view.
+     
+     - Returns: A view with the AuthBackgroundModifier applied.
+     */
     func withAuthBackground() -> some View {
         modifier(AuthBackgroundModifier())
     }
 }
 
+/**
+ The AuthView struct is responsible for displaying the authentication screen.
+ It provides options for signing in, creating an account, and continuing anonymously.
+ */
 struct AuthView: View {
     @StateObject private var viewModel = AuthViewModel()
     @EnvironmentObject private var networkMonitor: NetworkMonitor
@@ -35,6 +47,10 @@ struct AuthView: View {
     @State private var showingLogin = false
     @State private var showingSignUp = false
     
+    /**
+     The body property defines the content and behavior of the authentication screen.
+     It includes the app title, main message, network status, and authentication buttons.
+     */
     var body: some View {
         VStack(spacing: 40) {
             // App Title
@@ -158,7 +174,10 @@ struct AuthView: View {
     }
 }
 
-// Login View
+/**
+ The LoginView struct is responsible for displaying the login screen.
+ It provides fields for entering email and password, and a button to sign in.
+ */
 struct LoginView: View {
     @Binding var isPresented: Bool
     @State private var email = ""
@@ -167,6 +186,10 @@ struct LoginView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     
+    /**
+     The body property defines the content and behavior of the login screen.
+     It includes fields for email and password, and a sign-in button.
+     */
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
@@ -210,6 +233,11 @@ struct LoginView: View {
         }
     }
     
+    /**
+     Handles the login process by signing in with the provided email and password.
+     If the login is successful, dismisses the login view.
+     If an error occurs, displays an error message.
+     */
     private func login() {
         guard !email.isEmpty, !password.isEmpty else {
             errorMessage = "Please fill in all fields"
@@ -230,7 +258,10 @@ struct LoginView: View {
     }
 }
 
-// Sign Up View
+/**
+ The SignUpView struct is responsible for displaying the sign-up screen.
+ It provides fields for entering email, password, and confirming the password, and a button to create an account.
+ */
 struct SignUpView: View {
     @Binding var isPresented: Bool
     @State private var email = ""
@@ -240,6 +271,10 @@ struct SignUpView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     
+    /**
+     The body property defines the content and behavior of the sign-up screen.
+     It includes fields for email, password, and confirming the password, and a create account button.
+     */
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
@@ -287,6 +322,11 @@ struct SignUpView: View {
         }
     }
     
+    /**
+     Handles the sign-up process by creating a new user with the provided email and password.
+     If the sign-up is successful, dismisses the sign-up view.
+     If an error occurs, displays an error message.
+     */
     private func signUp() {
         guard !email.isEmpty, !password.isEmpty, !confirmPassword.isEmpty else {
             errorMessage = "Please fill in all fields"

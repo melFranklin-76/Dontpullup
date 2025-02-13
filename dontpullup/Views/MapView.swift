@@ -11,6 +11,7 @@ private enum MapViewConstants {
     )
 }
 
+// Custom annotation class for pins
 class PinAnnotation: MKPointAnnotation {
     let pin: Pin
     
@@ -22,9 +23,11 @@ class PinAnnotation: MKPointAnnotation {
     }
 }
 
+// SwiftUI view for displaying a map
 struct MapView: UIViewRepresentable {
     @ObservedObject var viewModel: MapViewModel
     
+    // Create and configure the MKMapView
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
@@ -60,6 +63,7 @@ struct MapView: UIViewRepresentable {
         return mapView
     }
     
+    // Configure the appearance and behavior of the MKMapView
     private func configureMapView(_ mapView: MKMapView) {
         // Configure base appearance
         mapView.mapType = .mutedStandard
@@ -85,6 +89,7 @@ struct MapView: UIViewRepresentable {
         mapView.camera = camera
     }
     
+    // Update the MKMapView with new data from the view model
     func updateUIView(_ mapView: MKMapView, context: Context) {
         // Update map type with animation if needed
         if mapView.mapType != viewModel.mapType {
@@ -143,10 +148,12 @@ struct MapView: UIViewRepresentable {
         }
     }
     
+    // Create the coordinator for handling map view delegate methods
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
     
+    // Coordinator class for handling MKMapViewDelegate methods
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: MapView
         
@@ -154,6 +161,7 @@ struct MapView: UIViewRepresentable {
             self.parent = parent
         }
         
+        // Handle long press gesture to add a new pin
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began else { return }
             
@@ -169,6 +177,7 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        // Provide a renderer for map overlays
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tileOverlay = overlay as? MKTileOverlay {
                 let renderer = MKTileOverlayRenderer(tileOverlay: tileOverlay)
@@ -178,6 +187,7 @@ struct MapView: UIViewRepresentable {
             return MKOverlayRenderer(overlay: overlay)
         }
         
+        // Provide a view for map annotations
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation is MKUserLocation {
                 let identifier = "UserLocation"
@@ -257,6 +267,7 @@ struct MapView: UIViewRepresentable {
             return nil
         }
         
+        // Handle the addition of annotation views to the map
         func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
             views.forEach { view in
                 view.alpha = 0
@@ -276,6 +287,7 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        // Handle the selection of an annotation view
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let annotation = view.annotation else { return }
             mapView.deselectAnnotation(annotation, animated: true)
@@ -387,6 +399,7 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        // Save temporary video file
         private func saveTempVideo(data: Data) async throws -> URL {
             do {
                 let tempDir = FileManager.default.temporaryDirectory
@@ -400,6 +413,7 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        // Play video from a given URL
         private func playVideo(from url: URL) async {
             do {
                 // Check if there's already a video being presented
@@ -484,6 +498,7 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        // Handle region changes on the map
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             DispatchQueue.main.async {
                 if let currentRegion = self.parent.viewModel.mapRegion,

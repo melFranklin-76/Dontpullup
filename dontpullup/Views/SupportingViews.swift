@@ -1,5 +1,8 @@
 import SwiftUI
 
+/**
+ A custom button style that applies a rectangular background and visual effects to buttons.
+ */
 struct RectangleButtonStyle: ButtonStyle {
     var isSelected: Bool = false
     
@@ -19,6 +22,9 @@ struct RectangleButtonStyle: ButtonStyle {
     }
 }
 
+/**
+ A view that displays a progress bar indicating the upload progress.
+ */
 struct UploadProgressBar: View {
     let progress: Double
     
@@ -39,6 +45,9 @@ struct UploadProgressBar: View {
     }
 }
 
+/**
+ A view that displays a title overlay with stylized text.
+ */
 struct TitleOverlay: View {
     var body: some View {
         ZStack {
@@ -76,4 +85,4 @@ struct TitleOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, 60)
     }
-} 
+}
