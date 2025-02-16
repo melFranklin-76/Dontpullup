@@ -60,14 +60,25 @@ class MapViewModel: NSObject, ObservableObject {
     private let CLOSE_ZOOM_DELTA: CLLocationDegrees = 0.001 // Approximately 200-300 feet view
     private var isUploadInProgress = false
     private var uploadQueue: [(URL, CLLocationCoordinate2D, IncidentType)] = []
-    private let maxRetries = 3
     private var currentRetryCount = 0
-    private let retryDelay: TimeInterval = 2.0 // Base delay in seconds
     private let cache = NSCache<NSString, NSData>()
     private let fileManager = FileManager.default
     private var offlineListener: ListenerRegistration?
     private var networkMonitor: NWPathMonitor?
     private let networkQueue = DispatchQueue(label: "NetworkMonitor")
+    
+    // MARK: - Configuration Constants
+    private struct Constants {
+        // Cache settings
+        static let maxCacheSize: UInt64 = 1024 * 1024 * 1024 // 1GB
+        static let maxCacheAge: TimeInterval = 7 * 24 * 60 * 60 // 1 week
+        // Retry settings
+        static let maxRetries = 3
+        static let retryDelay: TimeInterval = 2.0 // Base delay in seconds
+        // Cache limits
+        static let maxCacheItems = 50
+        static let maxCacheCost = 50 * 1024 * 1024 // 50MB
+    }
     
     // MARK: - Initialization
     override init() {
@@ -75,8 +86,8 @@ class MapViewModel: NSObject, ObservableObject {
         locationManager = CLLocationManager()
         
         // Configure cache with size limits
-        cache.countLimit = 50 // Maximum number of items
-        cache.totalCostLimit = 50 * 1024 * 1024 // 50MB limit
+        cache.countLimit = Constants.maxCacheItems
+        cache.totalCostLimit = Constants.maxCacheCost
         
         super.init()
         
@@ -194,9 +205,9 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func handleUploadError(_ error: Error, videoURL: URL, coordinate: CLLocationCoordinate2D, incidentType: IncidentType) {
-        if currentRetryCount < maxRetries {
+        if currentRetryCount < Constants.maxRetries {
             // Exponential backoff
-            let delay = retryDelay * pow(2.0, Double(currentRetryCount))
+            let delay = Constants.retryDelay * pow(2.0, Double(currentRetryCount))
             currentRetryCount += 1
             
             // Add back to queue with delay
@@ -270,24 +281,49 @@ class MapViewModel: NSObject, ObservableObject {
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.allowsBackgroundLocationUpdates = false
-        // Stop continuous updates
         locationManager.pausesLocationUpdatesAutomatically = true
         
-        // Only check initial authorization status
+        // Check initial authorization status and handle appropriately
+        checkLocationAuthorization()
+    }
+    
+    private func checkLocationAuthorization() {
         switch locationManager.authorizationStatus {
         case .notDetermined:
             print("Location authorization not determined, requesting...")
             locationManager.requestWhenInUseAuthorization()
-        case .restricted, .denied:
-            print("Location access denied or restricted")
-            showError("Location access is required to use this app. Please enable it in Settings.")
+        case .restricted:
+            print("Location access restricted")
+            showError("Location access is restricted. This app requires location access to function properly.")
+        case .denied:
+            print("Location access denied")
+            showLocationSettingsAlert()
         case .authorizedWhenInUse, .authorizedAlways:
             print("Location access authorized")
-            // Only get initial location
             locationManager.requestLocation()
         @unknown default:
             print("Unknown location authorization status")
             showError("Unknown location authorization status")
+        }
+    }
+    
+    private func showLocationSettingsAlert() {
+        let message = """
+        Location access is required to use this app. 
+        Please enable it in Settings to:
+        • Verify your location
+        • Place incident markers
+        • View nearby incidents
+        """
+        
+        alertMessage = message
+        showAlert = true
+        
+        // Add a slight delay to show the settings button
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(settingsURL)
+            }
         }
     }
     
@@ -626,7 +662,7 @@ class MapViewModel: NSObject, ObservableObject {
         print("Compressing video...")
         
         // Use async/await for export operation
-        try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             exportSession.exportAsynchronously {
                 switch exportSession.status {
                 case .completed:
@@ -840,7 +876,7 @@ class MapViewModel: NSObject, ObservableObject {
     // MARK: - Cache Management
     private func setupCacheDirectory() {
         do {
-            var cacheDir = getCacheDirectory()
+            let cacheDir = getCacheDirectory()
             if !fileManager.fileExists(atPath: cacheDir.path) {
                 try fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true, attributes: nil)
                 print("Cache directory created successfully at: \(cacheDir.path)")
@@ -851,76 +887,113 @@ class MapViewModel: NSObject, ObservableObject {
             resourceValues.isExcludedFromBackup = true
             try cacheDir.setResourceValues(resourceValues)
             
+            // Schedule periodic cache cleanup
+            Task {
+                while true {
+                    await cleanupCache()
+                    try await Task.sleep(nanoseconds: UInt64(12 * 60 * 60 * 1_000_000_000)) // 12 hours
+                }
+            }
+            
         } catch {
             print("Error setting up cache directory: \(error.localizedDescription)")
-            // Create a backup cache directory in case of failure
-            let backupCacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("VideoCache_Backup")
-            do {
-                try fileManager.createDirectory(at: backupCacheDir, withIntermediateDirectories: true, attributes: nil)
-                print("Backup cache directory created at: \(backupCacheDir.path)")
-            } catch {
-                print("Critical error: Failed to create backup cache directory: \(error.localizedDescription)")
-            }
+            createBackupCacheDirectory()
         }
-        cleanupOldCache()
     }
     
-    private func cleanupOldCache() {
-        Task.detached {
-            let cacheDir = await self.getCacheDirectory()
-            let resourceKeys: Set<URLResourceKey> = [.creationDateKey, .totalFileAllocatedSizeKey, .isExcludedFromBackupKey]
-            
-            guard let fileURLs = try? FileManager.default.contentsOfDirectory(at: cacheDir,
-                                                                            includingPropertiesForKeys: Array(resourceKeys),
-                                                                            options: .skipsHiddenFiles) else {
-                return
+    private func createBackupCacheDirectory() {
+        let backupCacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("VideoCache_Backup")
+        do {
+            try fileManager.createDirectory(at: backupCacheDir, withIntermediateDirectories: true, attributes: nil)
+            print("Backup cache directory created at: \(backupCacheDir.path)")
+        } catch {
+            print("Critical error: Failed to create backup cache directory: \(error.localizedDescription)")
+        }
+    }
+    
+    @MainActor
+    private func cleanupCache() async {
+        print("Starting cache cleanup...")
+        let cacheDir = getCacheDirectory()
+        let resourceKeys: Set<URLResourceKey> = [.creationDateKey, .totalFileAllocatedSizeKey, .isExcludedFromBackupKey]
+        
+        guard let fileURLs = try? FileManager.default.contentsOfDirectory(at: cacheDir,
+                                                                        includingPropertiesForKeys: Array(resourceKeys),
+                                                                        options: .skipsHiddenFiles) else {
+            return
+        }
+        
+        let expirationDate = Date().addingTimeInterval(-Constants.maxCacheAge)
+        var totalSize: UInt64 = 0
+        var fileSizes: [(url: URL, size: UInt64, date: Date)] = []
+        
+        // First pass: collect information
+        for fileURL in fileURLs {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys),
+                  let creationDate = resourceValues.creationDate,
+                  let fileSize = resourceValues.totalFileAllocatedSize else {
+                continue
             }
             
-            let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
-            let maxCacheSize: UInt64 = 500 * 1024 * 1024 // 500MB
-            var totalSize: UInt64 = 0
+            totalSize += UInt64(fileSize)
+            fileSizes.append((fileURL, UInt64(fileSize), creationDate))
+        }
+        
+        // Second pass: cleanup
+        if totalSize > Constants.maxCacheSize {
+            // Sort by date, oldest first
+            fileSizes.sort { $0.date < $1.date }
             
-            for fileURL in fileURLs {
-                guard let resourceValues = try? fileURL.resourceValues(forKeys: resourceKeys),
-                      let creationDate = resourceValues.creationDate,
-                      let fileSize = resourceValues.totalFileAllocatedSize else {
-                    continue
+            // Remove files until we're under the limit
+            for fileInfo in fileSizes {
+                if totalSize <= Constants.maxCacheSize * 8 / 10 { // Keep removing until we're at 80% of max
+                    break
                 }
-                
-                totalSize += UInt64(fileSize)
-                
-                // Remove files that are:
-                // 1. Older than a week
-                // 2. Not excluded from backup
-                // 3. If we're over the cache size limit
-                if creationDate < oneWeekAgo || 
-                   !(resourceValues.isExcludedFromBackup ?? false) ||
-                   totalSize > maxCacheSize {
-                    try? FileManager.default.removeItem(at: fileURL)
-                    totalSize -= UInt64(fileSize)
+                do {
+                    try FileManager.default.removeItem(at: fileInfo.url)
+                    totalSize -= fileInfo.size
+                    print("Removed cached file: \(fileInfo.url.lastPathComponent)")
+                } catch {
+                    print("Failed to remove cached file: \(error.localizedDescription)")
                 }
             }
         }
+        
+        // Remove expired files
+        for fileInfo in fileSizes where fileInfo.date < expirationDate {
+            do {
+                try FileManager.default.removeItem(at: fileInfo.url)
+                print("Removed expired cached file: \(fileInfo.url.lastPathComponent)")
+            } catch {
+                print("Failed to remove expired cached file: \(error.localizedDescription)")
+            }
+        }
+        
+        print("Cache cleanup completed. Current size: \(ByteCountFormatter.string(fromByteCount: Int64(totalSize), countStyle: .file))")
     }
     
     private func getCacheDirectory() -> URL {
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        var cacheDir = paths[0].appendingPathComponent("VideoCache", isDirectory: true)
+        let cacheDir = paths[0].appendingPathComponent("VideoCache", isDirectory: true)
         
         do {
             if !fileManager.fileExists(atPath: cacheDir.path) {
                 try fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true, attributes: nil)
-                
-                // Set directory attributes
-                var resourceValues = URLResourceValues()
-                resourceValues.isExcludedFromBackup = true
-                try cacheDir.setResourceValues(resourceValues)
             }
+            
+            // Create a new URL and set the resource values
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            
+            // Create a mutable copy of the URL
+            var mutableURL = cacheDir
+            try mutableURL.setResourceValues(resourceValues)
+            
+            return mutableURL
         } catch {
             print("Error creating cache directory: \(error.localizedDescription)")
+            return cacheDir
         }
-        
-        return cacheDir
     }
     
     private func getVideoCacheURL(for videoURL: String) -> URL {
@@ -932,84 +1005,98 @@ class MapViewModel: NSObject, ObservableObject {
     func cacheVideo(from url: URL, key: String) async throws {
         print("Attempting to cache video for key: \(key)")
         
-        let maxRetries = 3
         var currentRetry = 0
+        var lastError: Error?
         
-        while currentRetry < maxRetries {
+        while currentRetry < Constants.maxRetries {
             do {
-                // Create a safe filename by hashing the key
                 let safeFilename = String(abs(key.hashValue)) + ".mp4"
-                
-                let fileManager = FileManager.default
-                let cacheDirectory = try fileManager.url(for: .cachesDirectory, 
-                                                       in: .userDomainMask, 
-                                                       appropriateFor: nil, 
-                                                       create: true)
+                let cacheDirectory = try FileManager.default.url(for: .cachesDirectory, 
+                                                               in: .userDomainMask, 
+                                                               appropriateFor: nil, 
+                                                               create: true)
                 let fileURL = cacheDirectory.appendingPathComponent(safeFilename)
                 
-                // Check if video is already cached
-                if fileManager.fileExists(atPath: fileURL.path) {
-                    print("Video already exists in cache at: \(fileURL.path)")
+                // Check if video is already cached and valid
+                if FileManager.default.fileExists(atPath: fileURL.path),
+                   let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                   let creationDate = attributes[.creationDate] as? Date,
+                   creationDate.timeIntervalSinceNow > -Constants.maxCacheAge {
+                    print("Valid video already exists in cache")
                     return
                 }
                 
                 print("Downloading video to cache...")
                 
-                // Create a URLSession with a longer timeout and better configuration
                 let configuration = URLSessionConfiguration.default
-                configuration.timeoutIntervalForRequest = 300 // 5 minutes
-                configuration.timeoutIntervalForResource = 300 // 5 minutes
+                configuration.timeoutIntervalForRequest = 300
+                configuration.timeoutIntervalForResource = 300
                 configuration.waitsForConnectivity = true
                 configuration.allowsExpensiveNetworkAccess = true
                 configuration.allowsConstrainedNetworkAccess = true
+                
                 let session = URLSession(configuration: configuration)
                 
                 let (downloadedURL, response) = try await session.download(from: url)
                 
-                // Handle different types of responses
-                if let httpResponse = response as? HTTPURLResponse {
-                    switch httpResponse.statusCode {
-                    case 200...299:
-                        // Success case - proceed with caching
-                        if fileManager.fileExists(atPath: fileURL.path) {
-                            try fileManager.removeItem(at: fileURL)
-                        }
-                        try fileManager.moveItem(at: downloadedURL, to: fileURL)
-                        
-                        print("Successfully cached video at: \(fileURL)")
-                        
-                        // Store in memory cache
-                        if let data = try? Data(contentsOf: fileURL) {
-                            cache.setObject(data as NSData, forKey: key as NSString)
-                            print("Video also stored in memory cache")
-                        }
-                        return
-                    case 401, 403:
-                        throw NSError(domain: "VideoCache",
-                                    code: httpResponse.statusCode,
-                                    userInfo: [NSLocalizedDescriptionKey: "Authentication error"])
-                    case 404:
-                        throw NSError(domain: "VideoCache",
-                                    code: httpResponse.statusCode,
-                                    userInfo: [NSLocalizedDescriptionKey: "Video not found"])
-                    default:
-                        throw NSError(domain: "VideoCache",
-                                    code: httpResponse.statusCode,
-                                    userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NSError(domain: "VideoCache",
+                                code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
+                }
+                
+                switch httpResponse.statusCode {
+                case 200...299:
+                    if FileManager.default.fileExists(atPath: fileURL.path) {
+                        try FileManager.default.removeItem(at: fileURL)
                     }
+                    try FileManager.default.moveItem(at: downloadedURL, to: fileURL)
+                    
+                    print("Successfully cached video at: \(fileURL)")
+                    
+                    // Store in memory cache
+                    if let data = try? Data(contentsOf: fileURL) {
+                        cache.setObject(data as NSData, forKey: key as NSString)
+                        print("Video also stored in memory cache")
+                    }
+                    
+                    // Check cache size and cleanup if needed
+                    Task {
+                        await cleanupCache()
+                    }
+                    
+                    return
+                    
+                case 401, 403:
+                    throw NSError(domain: "VideoCache",
+                                code: httpResponse.statusCode,
+                                userInfo: [NSLocalizedDescriptionKey: "Authentication error"])
+                case 404:
+                    throw NSError(domain: "VideoCache",
+                                code: httpResponse.statusCode,
+                                userInfo: [NSLocalizedDescriptionKey: "Video not found"])
+                default:
+                    throw NSError(domain: "VideoCache",
+                                code: httpResponse.statusCode,
+                                userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
                 }
                 
             } catch {
+                lastError = error
                 currentRetry += 1
-                if currentRetry >= maxRetries {
-                    print("Failed to cache video after \(maxRetries) attempts: \(error.localizedDescription)")
+                
+                if currentRetry >= Constants.maxRetries {
+                    print("Failed to cache video after \(Constants.maxRetries) attempts: \(error.localizedDescription)")
                     throw error
                 } else {
-                    print("Retry \(currentRetry) of \(maxRetries) for caching video")
+                    print("Retry \(currentRetry) of \(Constants.maxRetries) for caching video")
                     try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(currentRetry)) * 1_000_000_000))
-                    continue
                 }
             }
+        }
+        
+        if let error = lastError {
+            throw error
         }
     }
     
@@ -1503,19 +1590,7 @@ class MapViewModel: NSObject, ObservableObject {
 extension MapViewModel: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                // Only request location if we don't have one
-                if locationManager.location == nil {
-                    locationManager.requestLocation()
-                }
-            case .denied, .restricted:
-                showError("Location access is required to use this app. Please enable it in Settings.")
-            case .notDetermined:
-                locationManager.requestWhenInUseAuthorization()
-            @unknown default:
-                showError("Unknown location authorization status")
-            }
+            checkLocationAuthorization()
         }
     }
     

@@ -14,8 +14,27 @@ final class FirebaseManager {
     func configure() {
         guard !isConfigured else { return }
         
+        // Debug: Check if GoogleService-Info.plist exists
+        if let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") {
+            print("Found GoogleService-Info.plist at: \(path)")
+            if let dict = NSDictionary(contentsOfFile: path) {
+                print("Successfully loaded GoogleService-Info.plist")
+                print("Project ID: \(dict["PROJECT_ID"] ?? "Not found")")
+                print("Bundle ID: \(dict["BUNDLE_ID"] ?? "Not found")")
+            } else {
+                print("Failed to load GoogleService-Info.plist contents")
+            }
+        } else {
+            print("GoogleService-Info.plist not found in bundle")
+        }
+        
         // Initialize Firebase first
-        FirebaseApp.configure()
+        do {
+            FirebaseApp.configure()
+            print("Firebase core configuration successful")
+        } catch {
+            print("Firebase configuration error: \(error)")
+        }
         
         // Configure Firestore settings
         let settings = FirestoreSettings()

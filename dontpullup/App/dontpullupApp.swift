@@ -94,59 +94,6 @@ struct DontPullUpApp: App {
     }
 }
 
-class AppDelegate: NSObject, UIApplicationDelegate {
-    var window: UIWindow?
-    private var firestoreListener: ListenerRegistration?
-    
-    func application(_ application: UIApplication,
-                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        print("AppDelegate: Application launching")
-        
-        if let user = Auth.auth().currentUser {
-            print("Current user ID: \(user.uid)")
-        }
-        
-        return true
-    }
-    
-    func application(_ application: UIApplication,
-                    configurationForConnecting connectingSceneSession: UISceneSession,
-                    options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        let sceneConfig = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
-        sceneConfig.delegateClass = SceneDelegate.self
-        return sceneConfig
-    }
-    
-    func application(_ application: UIApplication,
-                    didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
-    }
-    
-    func applicationWillTerminate(_ application: UIApplication) {
-        firestoreListener?.remove()
-    }
-    
-    // Required for Firebase Analytics
-    func application(_ application: UIApplication, open url: URL,
-                    options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        return true
-    }
-    
-    // Required for Firebase Push Notifications
-    func application(_ application: UIApplication,
-                    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-    }
-    
-    func application(_ application: UIApplication,
-                    didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    }
-    
-    func application(_ application: UIApplication,
-                    didReceiveRemoteNotification userInfo: [AnyHashable : Any],
-                    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        completionHandler(.noData)
-    }
-}
-
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     
