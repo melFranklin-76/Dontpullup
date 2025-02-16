@@ -1,0 +1,34 @@
+{
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "editor.defaultFormatter": "vknabel.vscode-swift-development-environment",
+    "files.exclude": {
+        "**/.git": true,
+        "**/.DS_Store": true,
+        "**/xcuserdata": true,
+        "**/*.xcodeproj/project.xcworkspace/xcuserdata": true,
+        "**/build": true,
+        "**/DerivedData": true
+    },
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/node_modules/*/**": true,
+        "**/build/**": true,
+        "**/DerivedData/**": true
+    },
+    "search.exclude": {
+        "**/build": true,
+        "**/DerivedData": true,
+        "**/*.xcodeproj": true,
+        "**/*.xcworkspace": true
+    },
+    "[swift]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
+    },
+    "git.enableSmartCommit": true,
+    "git.confirmSync": false,
+    "git.autofetch": true
+} 
