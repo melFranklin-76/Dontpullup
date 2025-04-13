@@ -22,13 +22,14 @@ service cloud.firestore {
     
     // Allow read access to all collections during development
     match /{document=**} {
-      allow read: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
     
     // Pins collection rules
     match /pins/{pinId} {
       // Allow read access to all authenticated users
-      allow read: if true;
+      allow read: if isAuthenticated();
       
       // Allow creation with strict validation
       allow create: if isAuthenticated()
@@ -49,4 +50,4 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
   }
-} 
+}

@@ -13,6 +13,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure Firebase
         FirebaseApp.configure()
         
+        // Ensure the app is configured to sync with the root folder automatically
+        syncWithRootFolder()
+        
         return true
     }
     
@@ -25,4 +28,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
         // Handle discarded scenes if needed
     }
-} 
+    
+    private func syncWithRootFolder() {
+        // Add any missing files from the root folder to the project
+        let fileManager = FileManager.default
+        let rootFolderURL = URL(fileURLWithPath: "/path/to/root/folder")
+        let projectFolderURL = URL(fileURLWithPath: "/path/to/project/folder")
+        
+        do {
+            let rootFolderContents = try fileManager.contentsOfDirectory(at: rootFolderURL, includingPropertiesForKeys: nil, options: [])
+            for fileURL in rootFolderContents {
+                let destinationURL = projectFolderURL.appendingPathComponent(fileURL.lastPathComponent)
+                if !fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.copyItem(at: fileURL, to: destinationURL)
+                }
+            }
+        } catch {
+            print("Error syncing with root folder: \(error)")
+        }
+    }
+}
