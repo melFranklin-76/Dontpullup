@@ -44,4 +44,4 @@ struct Pin: Identifiable, Codable {
         try container.encode(videoURL, forKey: .videoURL)
         try container.encode(userId, forKey: .userId)
     }
-} 
+}

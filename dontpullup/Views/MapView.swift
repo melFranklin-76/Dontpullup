@@ -496,4 +496,4 @@ struct MapView: UIViewRepresentable {
             }
         }
     }
-} 
+}

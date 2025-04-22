@@ -174,4 +174,4 @@ struct Resource: Identifiable {
     let name: String
     let description: String
     let link: String
-} 
+}

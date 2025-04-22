@@ -46,4 +46,4 @@ final class FirebaseManager {
         }
         return db
     }
-} 
+}

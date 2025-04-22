@@ -22,4 +22,4 @@ extension Font {
     static func captionFont(size: CGFloat) -> Font {
         .system(size: size, weight: .regular, design: .default)
     }
-} 
+}

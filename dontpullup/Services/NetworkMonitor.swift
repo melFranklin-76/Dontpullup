@@ -22,4 +22,4 @@ class NetworkMonitor: ObservableObject {
     deinit {
         monitor.cancel()
     }
-} 
+}

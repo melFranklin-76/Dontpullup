@@ -32,8 +32,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private func syncWithRootFolder() {
         // Add any missing files from the root folder to the project
         let fileManager = FileManager.default
-        let rootFolderURL = URL(fileURLWithPath: "/path/to/root/folder")
-        let projectFolderURL = URL(fileURLWithPath: "/path/to/project/folder")
+        let rootFolderURL = URL(fileURLWithPath: "/Users/melfranklin/Desktop/dontbullup_Backup")
+        let projectFolderURL = URL(fileURLWithPath: "/Users/melfranklin/Desktop/dontbullup_Backup")
         
         do {
             let rootFolderContents = try fileManager.contentsOfDirectory(at: rootFolderURL, includingPropertiesForKeys: nil, options: [])

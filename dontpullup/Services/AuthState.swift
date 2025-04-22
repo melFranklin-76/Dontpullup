@@ -55,4 +55,4 @@ class AuthState: ObservableObject {
             Auth.auth().removeStateDidChangeListener(handle)
         }
     }
-} 
+}

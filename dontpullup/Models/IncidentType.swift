@@ -53,4 +53,4 @@ enum IncidentType: String, CaseIterable, Codable {
         var container = encoder.singleValueContainer()
         try container.encode(firestoreType)
     }
-} 
+}

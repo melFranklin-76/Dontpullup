@@ -14,4 +14,4 @@ class AuthViewModel: ObservableObject {
         let result = try await Auth.auth().signInAnonymously()
         print("User signed in with ID: \(result.user.uid)")
     }
-} 
+}

@@ -34,4 +34,4 @@ private struct FilterButton: View {
         }
         .buttonStyle(RectangleButtonStyle(isSelected: isSelected))
     }
-} 
+}

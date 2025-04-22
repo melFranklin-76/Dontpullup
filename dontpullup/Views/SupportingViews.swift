@@ -76,4 +76,4 @@ struct TitleOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, 60)
     }
-} 
+}
