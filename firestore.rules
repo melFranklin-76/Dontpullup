@@ -1,0 +1,11 @@
+\
+     match /reports/{reportId} {
+       // Allow only creation by authenticated users
+       allow create: if isAuthenticated()
+         && request.resource.data.keys().hasAll(['pinId', 'reportedBy'])
+         && request.resource.data.pinId is string
+         && request.resource.data.reportedBy == request.auth.uid
+       
+       // Disallow reading, updating, or deleting reports directly
+       allow read, update, delete: if false;
+     } 
