@@ -1,0 +1,27 @@
+{
+    "version": 8,
+    "name": "Satellite",
+    "sources": {
+        "mapbox": {
+            "type": "raster",
+            "url": "mapbox://mapbox.satellite",
+            "tileSize": 256
+        }
+    },
+    "layers": [
+        {
+            "id": "background",
+            "type": "background",
+            "paint": {
+                "background-color": "#000000"
+            }
+        },
+        {
+            "id": "satellite",
+            "type": "raster",
+            "source": "mapbox",
+            "minzoom": 0,
+            "maxzoom": 22
+        }
+    ]
+} 

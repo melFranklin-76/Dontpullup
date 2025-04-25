@@ -1,0 +1,20 @@
+// ...existing code...
+dependencies: [
+    // ...existing dependencies...
+    .package(name: "Firebase", url: "https://github.com/firebase/firebase-ios-sdk", from: "8.0.0")
+],
+targets: [
+    .target(
+        name: "YourTargetName",
+        dependencies: [
+            // ...existing dependencies...
+            .product(name: "FirebaseAuth", package: "Firebase"),
+            .product(name: "FirebaseFirestore", package: "Firebase"),
+            .product(name: "FirebaseDatabase", package: "Firebase"),
+            .product(name: "FirebaseAnalytics", package: "Firebase"),
+            .product(name: "FirebaseStorage", package: "Firebase")
+        ]
+    )
+    // ...existing targets...
+]
+// ...existing code...

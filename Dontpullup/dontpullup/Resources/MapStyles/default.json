@@ -1,0 +1,31 @@
+{
+    "version": "1.0",
+    "settings": {
+        "landColor": "#FFFFFF",
+        "waterColor": "#A5D8FF",
+        "parkColor": "#C8F7C5",
+        "highwayColor": "#E5E5E5",
+        "buildingColor": "#F0F0F0",
+        "labelColor": "#000000"
+    },
+    "elements": [
+        {
+            "featureType": "all",
+            "elementType": "geometry",
+            "stylers": [
+                {
+                    "visibility": "simplified"
+                }
+            ]
+        },
+        {
+            "featureType": "road",
+            "elementType": "labels",
+            "stylers": [
+                {
+                    "visibility": "on"
+                }
+            ]
+        }
+    ]
+} 

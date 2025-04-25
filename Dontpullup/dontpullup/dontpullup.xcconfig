@@ -1,0 +1,5 @@
+// Custom build settings for dontpullup
+// This helps avoid redefinition issues
+
+// Add a special flag to prevent redeclaration
+OTHER_SWIFT_FLAGS = -DDONTPULLUP_AUTH_MODEL_DEFINED 

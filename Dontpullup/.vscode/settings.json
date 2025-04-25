@@ -1,0 +1,9 @@
+{
+    "deepseek.apikey": "sk-995e90e0a4a443989b98be1e7cfcaff5",
+    "files.exclude": {
+        "**/*.pbxproj": true,
+        "**/*.xcodeproj/**": true,
+        "**/*.xcworkspace/**": true,
+        "**/build/**": true
+    }
+}
