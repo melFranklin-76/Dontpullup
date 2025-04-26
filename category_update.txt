@@ -1,0 +1,47 @@
+# App Category Update Guide
+
+## Current Issue
+The app is currently miscategorized as "public.app-category.shopping" in the Xcode project file, which doesn't match the app's actual purpose as a social mapping platform.
+
+## Recommended Category Change
+Change the app category to "public.app-category.social-networking" or "public.app-category.utilities" to better reflect the app's functionality.
+
+## Steps to Update App Category in Xcode
+
+1. **Open the Xcode Project**:
+   - Open dontpullup.xcodeproj in Xcode
+
+2. **Select the Project Target**:
+   - Click on the project name in the Project Navigator
+   - Select the dontpullup target
+
+3. **Update Info.plist Settings**:
+   - Go to the "Info" tab
+   - Find "Application Category" or "LSApplicationCategoryType"
+   - Change the value from "public.app-category.shopping" to "public.app-category.social-networking"
+
+4. **Update Build Settings (if needed)**:
+   - Go to the "Build Settings" tab
+   - Search for "category"
+   - Update any category-related settings
+
+5. **Alternative Method (Direct Edit)**:
+   - Open the project.pbxproj file in a text editor
+   - Search for "public.app-category.shopping"
+   - Replace all instances with "public.app-category.social-networking"
+   - Save the file
+
+6. **Verify the Change**:
+   - Build the app to ensure no errors
+   - Check the Info.plist to confirm the change was applied
+
+## Available App Store Categories
+Choose the most appropriate category from this list:
+- public.app-category.social-networking (RECOMMENDED)
+- public.app-category.utilities
+- public.app-category.travel
+- public.app-category.navigation
+- public.app-category.news
+- public.app-category.lifestyle
+
+For a complete list of categories, refer to Apple's App Store Connect Help documentation. 

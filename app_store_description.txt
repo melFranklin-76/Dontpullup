@@ -1,0 +1,24 @@
+# Dontpullup: Social Video Mapping
+
+Share location-based video content of incidents happening around you in real-time.
+
+## What is Dontpullup?
+Dontpullup is a social mapping platform that allows you to drop video pins at your current location. See what's happening nearby through short videos posted by other users, and share your own perspective by capturing and posting videos tied to specific locations.
+
+## Key Features:
+• Drop video pins: Record and share videos (up to 3 minutes) tied to your exact location
+• Browse the map: Discover video content posted by others around you
+• Incident categorization: Filter content by incident type
+• Location verification: Pins can only be placed within 200 feet of your actual location
+• User profiles: Create an account to share and manage your content
+• Video compression: Optimal quality with minimal storage and bandwidth
+• Offline access: View previously loaded content even without internet connection
+
+## How It Works:
+1. Open the app to see a map of your area with video pins
+2. Long-press anywhere within 200 feet to drop a new pin
+3. Record a video (up to 3 minutes) or select one from your library
+4. Choose an incident category and post
+5. Tap any pin to view the attached video content
+
+Dontpullup respects your privacy - location access is only requested when viewing the map or dropping a pin. Join our community of users sharing real-time, location-based video content today! 

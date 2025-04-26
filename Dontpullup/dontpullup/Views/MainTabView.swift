@@ -23,6 +23,7 @@ struct MapContentView: View {
     @EnvironmentObject private var mapViewModel: MapViewModel
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var authState: AuthState
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showingSettings = false
     @State private var showingProfile = false
     @State private var showingTermsOfService = false
@@ -65,22 +66,28 @@ struct MapContentView: View {
                         HStack {
                             Spacer()
                             VStack(spacing: 10) {
-                                Button(action: { mapViewModel.zoomIn() }) {
-                                    Image(systemName: "plus.magnifyingglass")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(.white)
-                                        .frame(width: 40, height: 40)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
+                                // Use adaptive spacing based on size class
+                                let zoomButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 15 : 10
+                                let zoomButtonSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
+                                VStack(spacing: zoomButtonSpacing) { // Adaptive spacing
+                                    Button(action: { mapViewModel.zoomIn() }) {
+                                        Image(systemName: "plus.magnifyingglass")
+                                            .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Slightly larger icon on iPad
+                                            .foregroundColor(.white)
+                                            .frame(width: zoomButtonSize, height: zoomButtonSize) // Adaptive size
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    Button(action: { mapViewModel.zoomOut() }) {
+                                        Image(systemName: "minus.magnifyingglass")
+                                            .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Slightly larger icon on iPad
+                                            .foregroundColor(.white)
+                                            .frame(width: zoomButtonSize, height: zoomButtonSize) // Adaptive size
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
                                 }
-                                Button(action: { mapViewModel.zoomOut() }) {
-                                    Image(systemName: "minus.magnifyingglass")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(.white)
-                                        .frame(width: 40, height: 40)
-                                        .background(Color.black.opacity(0.6))
-                                        .clipShape(Circle())
-                                }
+                                .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16) // Adaptive padding
                             }
                             .padding(.trailing, 16)
                             // Align with filter buttons slightly
@@ -94,47 +101,55 @@ struct MapContentView: View {
                     ZStack {
                         // Background "DON'T PULL UP" text
                         Text("DON'T PULL UP")
-                            .font(.system(size: min(25, geometry.size.width * 0.06), weight: .heavy))
+                            // Use adaptive font style based on size class
+                            .font(horizontalSizeClass == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                             .foregroundColor(.yellow)
                             .tracking(2.0)
                             .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, geometry.size.width * 0.1)
+                            .padding(.horizontal, geometry.size.width * 0.1) // Keep horizontal padding geometry-based for now
 
                         // Marquee sits visually above "ON GRANDMA!" within the ZStack
                         // Use alignmentGuide or offset for precise vertical centering if needed
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 0) {
-                                Text(marqueeText)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.black)
-                                    .tracking(1.5)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                Text(marqueeText)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.black)
-                                    .tracking(1.5)
-                                    .fixedSize(horizontal: true, vertical: false)
+                        GeometryReader { marqueeGeometry in
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 0) {
+                                    Text(marqueeText)
+                                        // Use standard style supporting Dynamic Type
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(.black)
+                                        .tracking(1.5)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                    Text(marqueeText)
+                                        // Use standard style supporting Dynamic Type
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(.black)
+                                        .tracking(1.5)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                                .offset(x: marqueeOffset)
+                                .onAppear {
+                                    // Calculate width based on the first Text element
+                                    let actualTextWidth = marqueeGeometry.size.width / 2 // Since we have two identical texts
+                                    let duration = Double(actualTextWidth) / 30.0 // Adjust divisor for speed
+
+                                    // Reset offset before starting animation
+                                    marqueeOffset = 0
+                                    // Add a slight delay to ensure layout is complete before animating
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                                            marqueeOffset = -actualTextWidth // Scroll by the exact width of one text block
+                                        }
+                                    }
+                                }
                             }
-                            .offset(x: marqueeOffset)
+                            .disabled(true) // Keep scroll disabled
                         }
-                        .disabled(true)
-                        .frame(maxWidth: .infinity) // Takes width for clipping
-                        .clipped()
+                        .frame(height: 20) // Give GeometryReader a defined height for the banner
+                        .clipped() // Clip content outside the GeometryReader frame
                         .shadow(color: .black.opacity(0.5), radius: 1)
                         // Offset slightly below the vertical center for positioning between banners
                         .offset(y: 5) // Adjust this offset value as needed
-                        .onAppear {
-                            let font = UIFont.systemFont(ofSize: 12, weight: .medium)
-                            let textWidth = marqueeText.widthOfString(usingFont: font) + (CGFloat(marqueeText.count) * 1.5)
-                            marqueeOffset = 0
-                            shouldAnimateMarquee = true
-                            // Significantly slower animation - reduced speed by another 50% (now 25% of original)
-                            withAnimation(.linear(duration: Double(textWidth / 37.5)).repeatForever(autoreverses: false)) {
-                                marqueeOffset = -textWidth
-                            }
-                        }
-                        .id(shouldAnimateMarquee)
 
                         // ON GRANDMA! Text
                         VStack(spacing: 0) {
@@ -142,7 +157,8 @@ struct MapContentView: View {
                                 .frame(height: 20) // Adjust as needed based on desired banner spacing
 
                             Text("ON GRANDMA!")
-                                .font(.custom("BlackOpsOne-Regular", size: min(22.5, geometry.size.width * 0.05625)))
+                                // Use adaptive size with custom font
+                                .font(.custom("BlackOpsOne-Regular", size: horizontalSizeClass == .regular ? 24 : 18))
                                 .foregroundColor(DPUTheme.colors.alertRed)
                                 .tracking(1.0)
                                 .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
@@ -157,9 +173,12 @@ struct MapContentView: View {
                     // Right side filters
                     HStack {
                         Spacer()
-                        VStack(spacing: 12) {
+                        // Use adaptive spacing based on size class
+                        let filterButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 18 : 12
+                        VStack(spacing: filterButtonSpacing) { // Adaptive spacing
                             ForEach(IncidentType.allCases, id: \.self) { type in
-                                filterButton(for: type, size: geometry.size)
+                                // Pass horizontalSizeClass to filterButton
+                                filterButton(for: type, size: geometry.size, horizontalSizeClass: horizontalSizeClass)
                             }
                             
                             // Device-specific pins filter button
@@ -170,14 +189,15 @@ struct MapContentView: View {
                                 ZStack {
                                     Circle()
                                         .fill(mapViewModel.showingOnlyMyPins ? Color.blue : Color.gray.opacity(0.5))
-                                        .frame(width: 35, height: 35)
+                                        // Use adaptive size - ensure minimum 44x44
+                                        .frame(width: horizontalSizeClass == .regular ? 48 : 44, height: horizontalSizeClass == .regular ? 48 : 44)
                                     
                                     Text("📱")
-                                        .font(.system(size: 20))
+                                        .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Adaptive emoji size
                                 }
                             }
                         }
-                        .padding(.trailing, 16)
+                        .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16) // Adaptive padding
                     }
                     
                     Spacer()
@@ -195,15 +215,18 @@ struct MapContentView: View {
                     }
                     
                     // Bottom controls
-                    HStack(spacing: 20) {
+                    // Use adaptive spacing based on size class
+                    let bottomControlSpacing: CGFloat = horizontalSizeClass == .regular ? 30 : 20
+                    let bottomControlSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
+                    HStack(spacing: bottomControlSpacing) { // Adaptive spacing
                         Button(action: {
                             hapticImpact.impactOccurred()
                             mapViewModel.showingHelp = true
                         }) {
                             Image(systemName: "questionmark.circle.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(.white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
@@ -214,13 +237,13 @@ struct MapContentView: View {
                             showingSettings = true
                         }) {
                             Image(systemName: "gearshape.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(.white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
-
+                        
                         Spacer()
                         
                         // Center Location Button
@@ -229,9 +252,9 @@ struct MapContentView: View {
                             mapViewModel.centerOnUserLocation()
                         }) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(.white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
@@ -242,9 +265,9 @@ struct MapContentView: View {
                             mapViewModel.toggleEditMode()
                         }) {
                             Image(systemName: mapViewModel.isEditMode ? "xmark.circle.fill" : "pencil.circle.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(mapViewModel.isEditMode ? .red : .white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
@@ -255,9 +278,9 @@ struct MapContentView: View {
                             mapViewModel.toggleMapType()
                         }) {
                             Image(systemName: mapViewModel.mapType == .standard ? "map.fill" : "map")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(.white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
@@ -268,15 +291,15 @@ struct MapContentView: View {
                             showingProfile = true
                         }) {
                             Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
                                 .foregroundColor(.white)
-                                .frame(width: 40, height: 40)
+                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 12) // Adaptive padding
+                    .padding(.bottom, horizontalSizeClass == .regular ? 10 : 4) // Adaptive padding
                 }
             }
         }
@@ -296,6 +319,18 @@ struct MapContentView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environmentObject(authState)
+                .onAppear {
+                    if isPad() {
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let window = windowScene.windows.first,
+                           let rootVC = window.rootViewController,
+                           let presentedVC = rootVC.presentedViewController {
+                            
+                            presentedVC.modalPresentationStyle = .fullScreen
+                            presentedVC.modalTransitionStyle = .crossDissolve
+                        }
+                    }
+                }
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
@@ -324,7 +359,7 @@ struct MapContentView: View {
         }
     }
     
-    private func filterButton(for type: IncidentType, size: CGSize) -> some View {
+    private func filterButton(for type: IncidentType, size: CGSize, horizontalSizeClass: UserInterfaceSizeClass?) -> some View {
         Button(action: {
             hapticImpact.impactOccurred()
             mapViewModel.toggleFilter(type)
@@ -332,13 +367,20 @@ struct MapContentView: View {
             ZStack {
                 Circle()
                     .fill(mapViewModel.selectedFilters.contains(type) ? type.color : Color.gray.opacity(0.5))
-                    .frame(width: 35, height: 35)
+                    // Use adaptive size - ensure minimum 44x44
+                    .frame(width: horizontalSizeClass == .regular ? 48 : 44, height: horizontalSizeClass == .regular ? 48 : 44)
                 
                 Text(type.emoji)
-                    .font(.system(size: 20))
+                    // Use adaptive emoji size
+                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
             }
         }
     }
+}
+
+// Simple helper to detect iPads reliably
+private func isPad() -> Bool {
+    return UIDevice.current.userInterfaceIdiom == .pad
 }
 
 // Helper extension to estimate text width (simplistic)

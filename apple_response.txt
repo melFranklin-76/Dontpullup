@@ -1,0 +1,31 @@
+Response to App Review Team - Submission ID: 96efcff7-397e-45c2-8afc-a7934c12184e
+
+## What is the purpose of your app?
+
+Dontpullup is a social mapping application that allows users to share and discover location-based video content. The app serves as a platform where users can document and share incidents or events happening in their immediate vicinity through short videos (up to 3 minutes) that are pinned to exact geographic locations. This enables other users to discover and view these video pins on a map interface, creating a spatial visualization of user-generated video content.
+
+The purpose is to provide a way for users to see what's happening around them through the eyes of other community members, with the geographic context preserved. For example, users can document traffic conditions, local events, safety concerns, or interesting happenings - all tied to the exact location where they occurred.
+
+## What are the main features in your app that can be used by public audiences?
+
+1. **Interactive Map Interface**: Users can browse a map showing video pins placed by other users within their geographic area.
+
+2. **Video Pin Creation**: Users can create and drop video pins by:
+   - Long-pressing on the map within 200 feet of their current location
+   - Recording a video up to 3 minutes directly in the app
+   - Selecting an existing video from their photo library
+   - Categorizing the content by incident type
+
+3. **Video Content Viewing**: Users can tap on any pin to view the associated video content.
+
+4. **Incident Type Filtering**: Users can filter the map to show only specific types of incident pins.
+
+5. **User Authentication**: Users can create profiles to manage their content and view their contribution history.
+
+6. **Offline Capability**: Previously loaded content remains available for viewing when offline.
+
+7. **Video Compression**: Videos are automatically compressed for optimal storage and streaming performance.
+
+8. **Resources Section**: Provides useful information and guidance for using the app effectively.
+
+All these features are fully implemented, tested, and ready for public use. The app contains no placeholder content or incomplete functionality. 

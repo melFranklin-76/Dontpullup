@@ -27,6 +27,7 @@ struct AuthView: View {
     @StateObject private var authViewModel = AuthViewModel()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isLoading = false
@@ -41,6 +42,10 @@ struct AuthView: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .edgesIgnoringSafeArea(.all)
                 
+                // Add Overlay
+                Color.black.opacity(0.7)
+                    .edgesIgnoringSafeArea(.all)
+
                 // Content
                 VStack(spacing: 0) {
                     // Top section with spacing
@@ -48,67 +53,63 @@ struct AuthView: View {
                     
                     // Middle section with tagline
                     Text("Show us who they are\nso we can show them who we not")
-                        .font(.custom("BlackOpsOne-Regular", size: 24))
+                        .font(.custom("BlackOpsOne-Regular", size: horizontalSizeClass == .regular ? 30 : 24))
                         .foregroundColor(Color(red: 0, green: 0.8, blue: 1.0))
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.7), radius: 2)
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 20)
                     
                     Spacer()
                     
                     // Bottom section with buttons
-                    VStack(spacing: 20) {
+                    VStack(spacing: horizontalSizeClass == .regular ? 25 : 20) {
                         Button(action: { authViewModel.isShowingSignIn = true }) {
                             Text("Sign In")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: horizontalSizeClass == .regular ? 60 : 50)
                                 .background(Color.blue)
-                                .cornerRadius(25)
+                                .cornerRadius(horizontalSizeClass == .regular ? 30 : 25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: 400)
                         
                         Button(action: { authViewModel.isShowingSignUp = true }) {
                             Text("Create Account")
-                                .font(.system(size: 18, weight: .bold))
+                                .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: horizontalSizeClass == .regular ? 60 : 50)
                                 .background(Color.green)
-                                .cornerRadius(25)
+                                .cornerRadius(horizontalSizeClass == .regular ? 30 : 25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: 400)
                         
                         Button(action: signInAnonymously) {
                             ZStack {
                                 // Background
-                                RoundedRectangle(cornerRadius: 25)
+                                RoundedRectangle(cornerRadius: horizontalSizeClass == .regular ? 30 : 25)
                                     .fill(Color.purple)
                                     .opacity(isLoading ? 0.5 : 1.0)
-                                    .frame(height: 50)
+                                    .frame(height: horizontalSizeClass == .regular ? 60 : 50)
                                     .shadow(color: .black.opacity(0.3), radius: 4)
 
                                 if isLoading {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(horizontalSizeClass == .regular ? 1.5 : 1.0)
                                 } else {
                                     Text("Continue as Guest")
-                                        .font(.system(size: 16, weight: .medium))
+                                        .font(horizontalSizeClass == .regular ? .headline : .body.weight(.medium))
                                         .foregroundColor(.white)
                                 }
                             }
                             .frame(minWidth: 0, maxWidth: .infinity)
                         }
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: 400)
                         .disabled(isLoading)
                     }
-                    .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + 20))
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 80 : 24)
+                    .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + (horizontalSizeClass == .regular ? 30 : 20)))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -158,6 +159,10 @@ struct SignInView: View {
                         .aspectRatio(contentMode: .fill)
                         .edgesIgnoringSafeArea(.all)
                     
+                    // Add Overlay
+                    Color.black.opacity(0.7)
+                        .edgesIgnoringSafeArea(.all)
+
                     // Original ZStack content
                     ZStack {
                         // Color.black.ignoresSafeArea() // Original black background removed
@@ -266,6 +271,10 @@ struct SignUpView: View {
                         .aspectRatio(contentMode: .fill)
                         .edgesIgnoringSafeArea(.all)
                     
+                    // Add Overlay
+                    Color.black.opacity(0.7)
+                        .edgesIgnoringSafeArea(.all)
+
                     // Original ZStack content
                     ZStack {
                         // Color.black.ignoresSafeArea() // Original black background removed

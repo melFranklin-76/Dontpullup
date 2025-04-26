@@ -1,0 +1,48 @@
+# App Name Consistency Guide
+
+## Current Issue
+The app name is inconsistent across different files:
+- "Dont'PullUp" in Info.plist
+- "On Grandma!" in some project file settings
+- "Don't Pull Up" in other locations
+
+## Recommended App Name
+Use "Dontpullup" consistently across all files and settings.
+
+## Files to Update
+
+1. **Info.plist**:
+   - Change `CFBundleDisplayName` to "Dontpullup"
+
+2. **Project.pbxproj**:
+   - Change `INFOPLIST_KEY_CFBundleDisplayName` to "Dontpullup" 
+   - Update in both Debug and Release configurations
+
+3. **AppConstants.swift or similar**:
+   - If app name is defined in code, update to "Dontpullup"
+
+4. **App Store Connect**:
+   - Ensure the app name is consistent in App Store Connect
+
+## Steps to Update App Name
+
+1. **In Xcode**:
+   - Open the project in Xcode
+   - Select the project in the navigator
+   - Select the app target
+   - Go to the "General" tab
+   - Update "Display Name" to "Dontpullup"
+
+2. **Manual File Edits**:
+   - Open Info.plist in a text editor
+   - Find `<key>CFBundleDisplayName</key>`
+   - Change the value to `<string>Dontpullup</string>`
+
+3. **App Store Connect**:
+   - Log in to App Store Connect
+   - Navigate to your app
+   - Go to "App Information"
+   - Update "App Name" to "Dontpullup"
+
+## Verification
+After making these changes, build the app and check that the displayed name on the home screen is "Dontpullup". 

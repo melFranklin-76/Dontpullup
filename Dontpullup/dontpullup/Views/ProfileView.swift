@@ -9,19 +9,17 @@ struct ProfileView: View {
         NavigationView {
             ZStack { // Outer ZStack for background
                 // Background Image
-                Image("welcome_background")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .edgesIgnoringSafeArea(.all)
+                // Image("welcome_background")
+                //     .resizable()
+                //     .aspectRatio(contentMode: .fill)
+                //     .edgesIgnoringSafeArea(.all)
                 
                 // Semi-transparent overlay
-                Color.black.opacity(0.7)
-                    .edgesIgnoringSafeArea(.all)
+                // Color.black.opacity(0.7)
+                //     .edgesIgnoringSafeArea(.all)
                 
-                // Original ZStack content
-                ZStack {
-                    // Color.black.edgesIgnoringSafeArea(.all) // Original black background removed
-                    
+                // Original ZStack content becomes the main content container
+                // ZStack { // Original inner ZStack removed
                     VStack {
                         // User avatar and name
                         VStack(spacing: 12) {
@@ -75,8 +73,10 @@ struct ProfileView: View {
                         .padding(.bottom, 20)
                     }
                     .padding()
-                }
+                // }
             }
+            // Apply background color to the ZStack instead of an overlay
+            .background(Color.black.edgesIgnoringSafeArea(.all)) // Or use system background
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Sign Out", isPresented: $showSignOutConfirmation) {

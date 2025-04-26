@@ -1,0 +1,57 @@
+# App Store Resubmission Checklist
+
+## Addressing Apple's Rejection Reasons
+
+### 1. App Completeness Issues
+- [ ] Update app description in App Store Connect using app_store_description.txt
+- [ ] Remove any placeholder content from the app
+- [ ] Ensure all features mentioned in description are fully implemented
+- [ ] Verify no "coming soon" or incomplete sections exist in the app
+
+### 2. Information Needed
+- [ ] Submit response to Apple's questions using apple_response.txt
+- [ ] Clearly communicate app purpose and main features
+- [ ] Add a detailed app privacy policy if not already present
+
+### 3. Screenshot Issues
+- [ ] Create new screenshots following screenshot_guide.txt
+- [ ] Take native screenshots on actual iPhone devices
+- [ ] Take native screenshots on actual iPad devices
+- [ ] Ensure screenshots show app in actual use (not splash/login screens)
+- [ ] Verify screenshots highlight core functionality
+- [ ] Upload all screenshots to App Store Connect
+
+### 4. App Metadata Consistency
+- [ ] Update app category using category_update.txt
+- [ ] Ensure app name is consistent across all files using app_name_fix.txt
+- [ ] Verify app description matches app's actual features
+- [ ] Check keywords for relevance and accuracy
+
+## Technical Preparation
+
+### 1. Build Configuration
+- [ ] Update build number (CFBundleVersion) in Info.plist
+- [ ] Verify code signing identity and provisioning profiles
+- [ ] Run on physical devices to test real-world performance
+- [ ] Check for any console warnings or errors
+
+### 2. App Store Connect
+- [ ] Update all app metadata in App Store Connect
+- [ ] Verify app privacy details are complete and accurate
+- [ ] Upload new build through Xcode or Transporter
+- [ ] Complete export compliance information
+
+### 3. Final Testing
+- [ ] Test all core functionality on multiple device types
+- [ ] Verify location services work properly
+- [ ] Test video recording and playback
+- [ ] Check pin dropping functionality
+- [ ] Test user authentication flows
+- [ ] Verify offline functionality works as expected
+
+## Submission Process
+1. Archive and validate the app in Xcode
+2. Upload to App Store Connect
+3. Complete all metadata (description, screenshots, etc.)
+4. Submit for review with notes addressing previous rejection
+5. Monitor status and respond promptly to any further questions 

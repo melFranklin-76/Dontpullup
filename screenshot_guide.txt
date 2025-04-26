@@ -1,0 +1,51 @@
+# Screenshot Guide for App Store Submission
+
+## Required Screenshot Sizes
+- iPhone 6.5" (iPhone 12/13/14 Pro Max): 1284 x 2778 pixels
+- iPhone 5.5" (iPhone 8 Plus): 1242 x 2208 pixels
+- iPad Pro 12.9": 2048 x 2732 pixels
+- iPad Pro 11": 1668 x 2388 pixels
+
+## General Guidelines
+1. Take NATIVE screenshots on each actual device type (don't stretch iPhone screenshots for iPad)
+2. Show the app in ACTUAL USE (not splash screens or login screens)
+3. Capture the core functionality of the app
+4. Ensure consistent quality across all device types
+5. Use the same content/scenario across device types when possible
+
+## Required Screenshots (5-8 per device type)
+
+### iPhone Screenshots
+1. **Map View with Multiple Pins**: Show the main map with several pins visible
+2. **Incident Filter UI**: Display the map with filter buttons visible
+3. **Video Recording**: Capture the video recording interface when creating a pin
+4. **Viewing a Video**: Show a video being played from a pin
+5. **Profile/Authentication**: Display the user profile screen
+6. **Incident Type Selection**: Show the incident type picker when creating a pin
+7. **Resources View**: Display the resources screen
+8. **Help/Tutorial**: Show any tutorial or help content (if available)
+
+### iPad Screenshots (Same scenarios, native to iPad)
+1. **Map View with Multiple Pins**: Native iPad view 
+2. **Incident Filter UI**: Native iPad view
+3. **Video Recording**: Native iPad view
+4. **Viewing a Video**: Native iPad view
+5. **Profile/Authentication**: Native iPad view
+6. **Incident Type Selection**: Native iPad view
+7. **Resources View**: Native iPad view
+8. **Help/Tutorial**: Native iPad view
+
+## How to Take Screenshots
+1. Using the physical device or simulator, navigate to each screen
+2. For iPhone: Press Power + Volume Up buttons simultaneously
+3. For iPad: Press Top Button + Home Button (or Top Button + Volume Up for newer models)
+4. Screenshot files will be saved to Photos app
+5. Transfer screenshots to your computer
+6. Upload to App Store Connect using Media Manager
+
+## Important Notes
+- Ensure location services are enabled to show proper map functionality
+- Create some test pins with actual video content before taking screenshots
+- Don't use placeholder or test content in final screenshots
+- Screenshots should represent the actual user experience
+- Include pins with different incident types to showcase filtering 
