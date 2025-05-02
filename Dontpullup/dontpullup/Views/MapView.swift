@@ -74,6 +74,7 @@ struct MapView: View {
                         .edgesIgnoringSafeArea(.all)
                         .onTapGesture {
                             // Advance onboarding on tap
+                            HapticManager.selection() // Add haptic feedback for onboarding taps
                             currentOnboardingStep += 1
                             if currentOnboardingStep >= onboardingInstructions.count {
                                 hasCompletedOnboarding = true
@@ -150,7 +151,9 @@ struct MapView: View {
             IncidentTypePicker(viewModel: viewModel)
         }
         .alert(viewModel.alertMessage ?? "An error occurred", isPresented: $viewModel.showAlert) {
-            Button("OK", role: .cancel) {}
+            Button("OK", role: .cancel) {
+                HapticManager.feedback(.light) // Add subtle feedback when dismissing alerts
+            }
         }
     }
 }
@@ -732,6 +735,11 @@ struct ReportFormView: View {
                         Text("Other").tag("other")
                     }
                     .pickerStyle(.menu)
+                    .onChange(of: reportReason) { _ in
+                        if !reportReason.isEmpty {
+                            HapticManager.selection() // Feedback when selecting a reason
+                        }
+                    }
                 }
                 
                 Section {
@@ -743,10 +751,11 @@ struct ReportFormView: View {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle())
                                         .padding(.trailing, 10)
+                                } else {
+                                    Text("Submit Report")
+                                        .foregroundColor(.white)
+                                        .bold()
                                 }
-                                Text("Submit Report")
-                                    .foregroundColor(.white)
-                                    .bold()
                                 Spacer()
                             }
                         }
@@ -805,11 +814,13 @@ struct ReportFormView: View {
     
     private func submitReport() {
         guard !reportReason.isEmpty else {
+            HapticManager.error() // Error feedback
             errorMessage = "Please select a reason for reporting"
             showError = true
             return
         }
         
+        HapticManager.feedback(.medium) // Feedback when starting submission
         isSubmitting = true
         
         // Call viewModel with the additional info
@@ -817,9 +828,11 @@ struct ReportFormView: View {
             isSubmitting = false
             
             if success {
+                HapticManager.success() // Success feedback
                 // Successfully submitted, close all sheets
                 closeAllSheets()
             } else {
+                HapticManager.error() // Error feedback
                 // Show error if submission failed
                 errorMessage = "Failed to submit report. Please try again."
                 showError = true
@@ -830,6 +843,7 @@ struct ReportFormView: View {
     private func cancel() {
         // Only allow cancellation if not currently submitting
         if !isSubmitting {
+            HapticManager.feedback(.light) // Light feedback for cancel
             isPresented = false
         }
     }

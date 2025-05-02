@@ -8,7 +8,6 @@ struct MainTabView: View {
     @EnvironmentObject private var authState: AuthState
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @StateObject private var mapViewModel = MapViewModel()
-    @StateObject private var onboardingManager = OnboardingManager.shared
     
     var body: some View {
         // Directly show MapContentView without TabView wrapper
@@ -16,12 +15,7 @@ struct MainTabView: View {
             .environmentObject(mapViewModel)
             .environmentObject(authState)
             .environmentObject(networkMonitor)
-            .environmentObject(onboardingManager)
             .preferredColorScheme(.dark)
-            .onAppear {
-                // Start onboarding when app appears
-                onboardingManager.startOnboarding()
-            }
     }
 }
 
@@ -29,7 +23,6 @@ struct MapContentView: View {
     @EnvironmentObject private var mapViewModel: MapViewModel
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var authState: AuthState
-    @EnvironmentObject private var onboardingManager: OnboardingManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showingSettings = false
     @State private var showingProfile = false
@@ -41,19 +34,17 @@ struct MapContentView: View {
     @State private var marqueeOffset: CGFloat = 0
     @State private var shouldAnimateMarquee = false
     // Define phrases and pause spacing for marquee
-    private let phrase1 = "SHOW US WHO THEY ARE"
-    private let phrase2 = "SO WE CAN SHOW THEM WHO WE ARE NOT"
-    private let pauseSpacing = String(repeating: " ", count: 50) // Adjust space count for pause duration
-    private var baseMarqueeText: String { phrase1 + pauseSpacing + phrase2 }
-    // Use pauseSpacing also at the end for a pause before looping
-    private var marqueeText: String { baseMarqueeText + pauseSpacing }
+    private let phrase1 = "SHOW  US   WHO  THEY   ARE"
+    private let phrase2 = " WE  WILL  SHOW  THEM  WHO  WE  ARE  NOT"
+    private let pauseSpacing = String(repeating: " ", count: 20)
+    private var marqueeText: String { phrase1 + pauseSpacing + phrase2 + pauseSpacing }
+    
+    // State used to measure text width for smooth looping
+    @State private var textContentWidth: CGFloat = 0
     
     // Create publishers for the notification events
-    private let termsOfServicePublisher = NotificationCenter.default
-        .publisher(for: Notification.Name("OpenTermsOfService"))
-    
-    private let privacyPolicyPublisher = NotificationCenter.default
-        .publisher(for: Notification.Name("OpenPrivacyPolicy"))
+    private let termsOfServicePublisher = NotificationCenter.default.publisher(for: Notification.Name("OpenTermsOfService"))
+    private let privacyPolicyPublisher = NotificationCenter.default.publisher(for: Notification.Name("OpenPrivacyPolicy"))
     
     var body: some View {
         GeometryReader { geometry in
@@ -118,39 +109,40 @@ struct MapContentView: View {
 
                         // Marquee sits visually above "ON GRANDMA!" within the ZStack
                         // Use alignmentGuide or offset for precise vertical centering if needed
-                        GeometryReader { marqueeGeometry in
+                        GeometryReader { geo in
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 0) {
                                     Text(marqueeText)
-                                        // Use standard style supporting Dynamic Type
                                         .font(.caption.weight(.medium))
                                         .foregroundColor(.black)
                                         .tracking(1.5)
-                                        .fixedSize(horizontal: true, vertical: false)
+                                        .fixedSize()
+                                        .background(GeometryReader { tGeo in
+                                            Color.clear.onAppear {
+                                                textContentWidth = tGeo.size.width
+                                            }
+                                        })
                                     Text(marqueeText)
-                                        // Use standard style supporting Dynamic Type
                                         .font(.caption.weight(.medium))
                                         .foregroundColor(.black)
                                         .tracking(1.5)
-                                        .fixedSize(horizontal: true, vertical: false)
+                                        .fixedSize()
                                 }
                                 .offset(x: marqueeOffset)
                                 .onAppear {
-                                    // Calculate width based on the first Text element
-                                    let actualTextWidth = marqueeGeometry.size.width / 2 // Since we have two identical texts
-                                    let duration = Double(actualTextWidth) / 30.0 // Adjust divisor for speed
-
-                                    // Reset offset before starting animation
-                                    marqueeOffset = 0
-                                    // Add a slight delay to ensure layout is complete before animating
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    // Ensure we have measured width
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        let width = textContentWidth
+                                        guard width > 0 else { return }
+                                        let duration = Double(width) / 40.0 // speed factor
+                                        marqueeOffset = 0
                                         withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-                                            marqueeOffset = -actualTextWidth // Scroll by the exact width of one text block
+                                            marqueeOffset = -width
                                         }
                                     }
                                 }
                             }
-                            .disabled(true) // Keep scroll disabled
+                            .disabled(true)
                         }
                         .frame(height: 20) // Give GeometryReader a defined height for the banner
                         .clipped() // Clip content outside the GeometryReader frame
@@ -177,39 +169,43 @@ struct MapContentView: View {
 
                     Spacer() // Pushes filters/bottom controls down
                     
-                    // Right side filters
-                    HStack {
+                    // Right-side filters (visually centred vertically)
+                    VStack { // outer spacer stack for vertical centering
                         Spacer()
                         // Use adaptive spacing based on size class
                         let filterButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 18 : 12
-                        VStack(spacing: filterButtonSpacing) { // Adaptive spacing
+                        VStack(spacing: filterButtonSpacing) {
                             ForEach(IncidentType.allCases, id: \.self) { type in
-                                // Pass horizontalSizeClass to filterButton
                                 filterButton(for: type, size: geometry.size, horizontalSizeClass: horizontalSizeClass)
                             }
-                            
-                            // Device-specific pins filter button
+
+                            // Device-specific pins filter button (shows only my pins)
                             Button(action: {
-                                hapticImpact.impactOccurred()
+                                HapticManager.feedback(.medium)
                                 mapViewModel.toggleMyPinsFilter()
                             }) {
                                 ZStack {
+                                    let baseSize: CGFloat = horizontalSizeClass == .regular ? 48 : 44
+                                    let adjustedSize = baseSize * 0.9
+                                    let baseFont: CGFloat = horizontalSizeClass == .regular ? 24 : 20
+                                    let adjustedFont = baseFont * 0.9
+
                                     Circle()
                                         .fill(mapViewModel.showingOnlyMyPins ? Color.blue : Color.gray.opacity(0.5))
-                                        // Use adaptive size - ensure minimum 44x44
-                                        .frame(width: horizontalSizeClass == .regular ? 48 : 44, height: horizontalSizeClass == .regular ? 48 : 44)
-                                    
+                                        .frame(width: adjustedSize, height: adjustedSize)
+
                                     Text("📱")
-                                        .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Adaptive emoji size
+                                        .font(.system(size: adjustedFont))
                                 }
                             }
                         }
-                        .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16) // Adaptive padding
-                        .tag(101) // Tag for onboarding tooltip
+                        .tag(101)
+                        .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16)
+                        .offset(y: -geometry.size.height * 0.25) // elevate stack ~25% screen height so it sits above zoom controls
+                        Spacer()
                     }
-                    
-                    Spacer()
-                    
+                    .frame(maxWidth: .infinity, alignment: .trailing) // Anchor to the right edge
+
                     // Network status indicator
                     if !networkMonitor.isConnected {
                         Text("Offline Mode - Some features may be limited")
@@ -228,7 +224,7 @@ struct MapContentView: View {
                     let bottomControlSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
                     HStack(spacing: bottomControlSpacing) { // Adaptive spacing
                         Button(action: {
-                            hapticImpact.impactOccurred()
+                            HapticManager.feedback(.medium)
                             mapViewModel.showingHelp = true
                         }) {
                             Image(systemName: "questionmark.circle.fill")
@@ -241,7 +237,7 @@ struct MapContentView: View {
                         
                         // Settings Button
                         Button(action: {
-                            hapticImpact.impactOccurred()
+                            HapticManager.feedback(.medium)
                             showingSettings = true
                         }) {
                             Image(systemName: "gearshape.fill")
@@ -252,11 +248,24 @@ struct MapContentView: View {
                                 .clipShape(Circle())
                         }
                         
+                        // Map Type Toggle Button - Added back
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            mapViewModel.toggleMapType()
+                        }) {
+                            Image(systemName: "map.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
                         Spacer()
                         
                         // Center Location Button
                         Button(action: {
-                            hapticImpact.impactOccurred()
+                            HapticManager.feedback(.medium)
                             mapViewModel.centerOnUserLocation()
                         }) {
                             Image(systemName: "location.fill")
@@ -268,35 +277,22 @@ struct MapContentView: View {
                         }
                         .tag(100) // Tag for onboarding tooltip
                         
-                        // Edit Mode Button (Restored)
+                        // Edit Mode Button
                         Button(action: {
-                            hapticImpact.impactOccurred()
+                            HapticManager.feedback(.medium)
                             mapViewModel.toggleEditMode()
                         }) {
                             Image(systemName: mapViewModel.isEditMode ? "xmark.circle.fill" : "pencil.circle.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
                                 .foregroundColor(mapViewModel.isEditMode ? .red : .white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
+                                .frame(width: bottomControlSize, height: bottomControlSize)
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
                         
-                        // Map Type Button (Restored)
-                        Button(action: {
-                            hapticImpact.impactOccurred()
-                            mapViewModel.toggleMapType()
-                        }) {
-                            Image(systemName: mapViewModel.mapType == .standard ? "map.fill" : "map")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
-
                         // Profile Button
                         Button(action: {
-                            hapticImpact.impactOccurred()
+                            HapticManager.feedback(.medium)
                             showingProfile = true
                         }) {
                             Image(systemName: "person.crop.circle.fill")
@@ -312,8 +308,6 @@ struct MapContentView: View {
                     .padding(.bottom, horizontalSizeClass == .regular ? 10 : 4) // Adaptive padding
                 }
             }
-            // Apply onboarding tooltips to the entire view
-            .withOnboardingTooltips()
         }
         // Listen for notification events using onReceive
         .onReceive(termsOfServicePublisher) { _ in
@@ -372,19 +366,23 @@ struct MapContentView: View {
     }
     
     private func filterButton(for type: IncidentType, size: CGSize, horizontalSizeClass: UserInterfaceSizeClass?) -> some View {
-        Button(action: {
-            hapticImpact.impactOccurred()
+        // Base dimensions
+        let baseSize: CGFloat = horizontalSizeClass == .regular ? 48 : 44
+        let adjustedSize = baseSize * 0.9 // Reduce by 10%
+        let baseFont: CGFloat = horizontalSizeClass == .regular ? 24 : 20
+        let adjustedFont = baseFont * 0.9 // Reduce by 10%
+
+        return Button(action: {
+            HapticManager.feedback(.medium)
             mapViewModel.toggleFilter(type)
         }) {
             ZStack {
                 Circle()
                     .fill(mapViewModel.selectedFilters.contains(type) ? type.color : Color.gray.opacity(0.5))
-                    // Use adaptive size - ensure minimum 44x44
-                    .frame(width: horizontalSizeClass == .regular ? 48 : 44, height: horizontalSizeClass == .regular ? 48 : 44)
-                
+                    .frame(width: adjustedSize, height: adjustedSize)
+
                 Text(type.emoji)
-                    // Use adaptive emoji size
-                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+                    .font(.system(size: adjustedFont))
             }
         }
     }
