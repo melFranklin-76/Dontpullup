@@ -71,7 +71,22 @@ struct MapView: View {
                         .edgesIgnoringSafeArea(.all)
                         .onTapGesture {
                             // Advance onboarding on tap
-                            HapticManager.selection() // Add haptic feedback for onboarding taps
+                            // Try all types of feedback to see which works
+                            print("Onboarding tap detected - trying all haptic types")
+                            
+                            // Create a direct generator instance for immediate use
+                            let directGenerator = UIImpactFeedbackGenerator(style: .heavy)
+                            directGenerator.prepare()
+                            directGenerator.impactOccurred(intensity: 1.0)
+                            
+                            // Try our manager with different feedback types
+                            HapticManager.selection()
+                            
+                            // Add a delay and try force feedback
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                HapticManager.forceFeedback()
+                            }
+                            
                             currentOnboardingStep += 1
                             if currentOnboardingStep >= onboardingInstructions.count {
                                 hasCompletedOnboarding = true

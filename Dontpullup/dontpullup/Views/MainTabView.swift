@@ -373,7 +373,10 @@ struct MapContentView: View {
         let adjustedFont = baseFont * 0.9 // Reduce by 10%
 
         return Button(action: {
-            HapticManager.feedback(.medium)
+            // Use the stronger forceFeedback for filter toggles
+            HapticManager.forceFeedback()
+            // Also log for debugging
+            print("Filter button pressed - haptic triggered")
             mapViewModel.toggleFilter(type)
         }) {
             ZStack {
