@@ -68,7 +68,7 @@
          <EnvironmentVariable
             key = "APP_CHECK_DEBUG_TOKEN"
             value = "B922826B-A7F3-4DA8-BCB4-908D0B5D2D4F"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>

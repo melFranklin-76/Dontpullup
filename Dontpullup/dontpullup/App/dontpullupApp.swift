@@ -49,11 +49,13 @@ struct DontPullUpApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var authState = AuthState.shared
+    @State private var hasInitialized = false
     
     init() {
         appLogger.info("App Initializing...")
-        // Firebase is already configured in AppDelegate
-        // No need to configure here
+        
+        // Setup any crash handlers or error trackers
+        setupErrorHandling()
     }
     
     var body: some Scene {
@@ -64,6 +66,48 @@ struct DontPullUpApp: App {
                 .environmentObject(networkMonitor) // Inject dependencies
                 .environmentObject(authState)
                 .background(Color.black.ignoresSafeArea()) // Apply global background
+                .onAppear {
+                    // Do any one-time initialization when the app appears
+                    if !hasInitialized {
+                        performFirstTimeInitialization()
+                        hasInitialized = true
+                    }
+                }
+        }
+    }
+    
+    // Helper method for error handling setup
+    private func setupErrorHandling() {
+        // Set up any global error handlers here
+        
+        // Example: Handle uncaught exceptions
+        NSSetUncaughtExceptionHandler { exception in
+            appLogger.error("CRASH: Uncaught exception: \(exception.name.rawValue) - \(exception.reason ?? "no reason") \(exception.callStackSymbols.joined(separator: "\n"))")
+        }
+    }
+    
+    // One-time initialization tasks
+    private func performFirstTimeInitialization() {
+        appLogger.info("Performing first-time initialization tasks")
+        
+        // Add any app-wide initialization that should happen once
+        // For example, configure libraries or services
+        
+        // Monitor and log app lifecycle
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            appLogger.info("App became active")
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            appLogger.info("App will resign active")
         }
     }
 }
@@ -96,6 +140,20 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     
     func sceneWillEnterForeground(_ scene: UIScene) {
         print("SceneDelegate: Scene will enter foreground")
+        
+        // Force refresh Firebase auth token when coming back to foreground
+        if let user = Auth.auth().currentUser {
+            user.getIDTokenForcingRefresh(true) { _, error in
+                if let error = error {
+                    print("Error refreshing Firebase token: \(error.localizedDescription)")
+                } else {
+                    print("Successfully refreshed Firebase auth token")
+                }
+            }
+        }
+        
+        // Ensure network connectivity is properly reestablished
+        NotificationCenter.default.post(name: NSNotification.Name("AppWillEnterForeground"), object: nil)
     }
     
     func sceneDidEnterBackground(_ scene: UIScene) {

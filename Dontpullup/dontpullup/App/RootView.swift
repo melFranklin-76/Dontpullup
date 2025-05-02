@@ -1,41 +1,45 @@
 import SwiftUI
+import UIKit
 
 /// Determines the root view based on authentication state.
 struct RootView: View {
-    @StateObject private var authState = AuthState.shared
-    @StateObject private var networkMonitor = NetworkMonitor()
+    // Use existing instances instead of creating new ones
+    @EnvironmentObject private var authState: AuthState
+    @EnvironmentObject private var networkMonitor: NetworkMonitor
+    
+    // Add more state management
     @State private var isLoading = true
+    
+    // Add a fixed timeout to ensure app doesn't hang forever
+    private let splashTimeout: TimeInterval = 2.0
     
     var body: some View {
         Group {
             if isLoading {
                 SplashScreen()
-                    .environmentObject(authState)
-                    .environmentObject(networkMonitor)
                     .onAppear {
-                        // Simulate minimum splash screen duration
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        // Simple timeout to transition from splash to main app
+                        DispatchQueue.main.asyncAfter(deadline: .now() + splashTimeout) {
+                            print("Splash screen timeout reached - transitioning to main app")
                             withAnimation {
                                 isLoading = false
                             }
                         }
                     }
             } else {
+                // Normal app flow
                 if authState.isAuthenticated {
                     MainTabView()
-                        .environmentObject(authState)
-                        .environmentObject(networkMonitor)
                         .transition(.opacity)
                 } else {
                     AuthView()
-                        .environmentObject(authState)
-                        .environmentObject(networkMonitor)
                         .transition(.opacity)
                 }
             }
         }
         .animation(.easeInOut, value: isLoading)
         .animation(.easeInOut, value: authState.isAuthenticated)
+        .preferredColorScheme(.dark)
     }
 }
 

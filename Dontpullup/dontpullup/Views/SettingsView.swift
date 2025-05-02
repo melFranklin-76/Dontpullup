@@ -550,7 +550,7 @@ struct TermsOfServiceView: View {
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
-                    Text("Welcome to Don't Pull Up, on Grandma! ("the App"), a platform operated by RESCH & RALSTON R.I.P. TRUST. These Terms of Service govern your use of our App and services.")
+                    Text("Welcome to Don't Pull Up, on Grandma! (\"the App\"), a platform operated by RESCH & RALSTON R.I.P. TRUST. These Terms of Service govern your use of our App and services.")
                         .font(.body)
                         .foregroundColor(.white)
                         .padding(.bottom, 8)

@@ -15,7 +15,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1E29704F2D3258B80095E62E /* dontpullup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "dontpullup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E29704F2D3258B80095E62E /* dontpullup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dontpullup.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -90,7 +90,7 @@
 			fileSystemSynchronizedGroups = (
 				1E2970512D3258B80095E62E /* dontpullup */,
 			);
-			name = "dontpullup";
+			name = dontpullup;
 			packageProductDependencies = (
 				1E2970612D325BC40095E62E /* FirebaseAuth */,
 				1E2970632D325BC40095E62E /* FirebaseFirestore */,

@@ -217,6 +217,20 @@ class MapViewModel: NSObject, ObservableObject {
         
         setupLocationManager()
         
+        // Add a timeout to prevent hanging on location permission
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self = self else { return }
+            if !self.hasSetInitialRegion {
+                // Force set a default region if location permission is taking too long
+                self.mapRegion = MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+                    span: MapConstants.defaultSpan
+                )
+                self.hasSetInitialRegion = true
+                logger.warning("Location permission timed out, using default region")
+            }
+        }
+        
         setupFirestoreListener() // Call directly
         
         loadCachedData()
@@ -233,6 +247,14 @@ class MapViewModel: NSObject, ObservableObject {
             self,
             selector: #selector(handleAppForeground),
             name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        
+        // Add custom foreground notification observer
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppCustomForeground),
+            name: NSNotification.Name("AppWillEnterForeground"),
             object: nil
         )
         
@@ -281,6 +303,23 @@ class MapViewModel: NSObject, ObservableObject {
         // Resume any paused uploads
         if !uploadQueue.isEmpty {
             processUploadQueue()
+        }
+    }
+    
+    @objc private func handleAppCustomForeground() {
+        // Refresh Firestore listener when coming back from background
+        print("MapViewModel: Received custom foreground notification")
+        
+        // Remove and reestablish Firestore listener to ensure fresh connection
+        offlineListener?.remove()
+        setupFirestoreListener()
+        
+        // Re-fetch user location to ensure map is properly centered
+        if !hasSetInitialRegion && locationManager.authorizationStatus == .authorizedWhenInUse {
+            locationManager.requestLocation()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.centerOnUserLocation()
+            }
         }
     }
     
@@ -412,7 +451,18 @@ class MapViewModel: NSObject, ObservableObject {
             locationManager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
-        default:
+        case .denied, .restricted:
+            // If permission denied, set a default region so UI doesn't hang
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, !self.hasSetInitialRegion else { return }
+                self.mapRegion = MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+                    span: MapConstants.defaultSpan
+                )
+                self.hasSetInitialRegion = true
+                locationLogger.warning("Location access denied, using default region")
+            }
+        @unknown default:
             break
         }
         locationLogger.trace("setupLocationManager() - END")

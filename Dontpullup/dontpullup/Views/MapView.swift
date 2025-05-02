@@ -39,6 +39,8 @@ struct MapView: View {
     @State private var selectedPin: Pin?
     @State private var showingVideoPlayer = false
     @State private var videoURLToPlay: URL?
+    @State private var errorState = false
+    @State private var errorMessage = ""
     
     // Onboarding State
     @AppStorage("hasCompletedMapOnboarding") var hasCompletedOnboarding = false
@@ -57,33 +59,26 @@ struct MapView: View {
     
     var body: some View {
         NavigationView {
-            ZStack { // Use ZStack to overlay onboarding
+            ZStack {
                 MapViewInternal(viewModel: viewModel)
-                    .edgesIgnoringSafeArea(.all) // Extend map to screen edges
-
-                // UI Elements like buttons, etc.
+                    .edgesIgnoringSafeArea(.all)
+                
                 VStack {
-                    Spacer() // Pushes buttons to the bottom or top as needed
+                    Spacer()
                 }
                 
-                // Onboarding Overlay
                 if !hasCompletedOnboarding && currentOnboardingStep < onboardingInstructions.count {
-                    Color.black.opacity(0.5) // Dim background
+                    Color.black.opacity(0.5)
                         .edgesIgnoringSafeArea(.all)
                         .onTapGesture {
-                            // Advance onboarding on tap
-                            // Try all types of feedback to see which works
                             print("Onboarding tap detected - trying all haptic types")
                             
-                            // Create a direct generator instance for immediate use
                             let directGenerator = UIImpactFeedbackGenerator(style: .heavy)
                             directGenerator.prepare()
                             directGenerator.impactOccurred(intensity: 1.0)
                             
-                            // Try our manager with different feedback types
                             HapticManager.selection()
                             
-                            // Add a delay and try force feedback
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 HapticManager.forceFeedback()
                             }
@@ -97,31 +92,27 @@ struct MapView: View {
                     VStack {
                         Spacer()
                         Text(onboardingInstructions[currentOnboardingStep])
-                            .font(.subheadline) // Reduced from title3 to subheadline (smaller)
-                            .fontWeight(.medium) // Changed from semibold to medium
+                            .font(.subheadline)
+                            .fontWeight(.medium)
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
-                            .lineSpacing(-2) // Tighter line spacing
-                            .padding(.horizontal, 16) // Reduced from 22
-                            .padding(.vertical, 10) // Reduced from 14
+                            .lineSpacing(-2)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
                             .background(Color.black.opacity(0.7))
-                            .cornerRadius(12) // Reduced from 15
-                            .shadow(radius: 8) // Reduced from 10
-                            .frame(maxWidth: UIScreen.main.bounds.width * 0.75) // Constrain width to 75% of screen
-                            .padding(.bottom, 60) // Reduced from 80
-                            // Position on the left side to avoid filter buttons on the right
+                            .cornerRadius(12)
+                            .shadow(radius: 8)
+                            .frame(maxWidth: UIScreen.main.bounds.width * 0.75)
+                            .padding(.bottom, 60)
                             .offset(x: -UIScreen.main.bounds.width * 0.12)
 
                         Text("Tap anywhere to continue (\(currentOnboardingStep + 1)/\(onboardingInstructions.count))")
                              .font(.caption2)
                              .foregroundColor(.white.opacity(0.8))
-                             .padding(.bottom, 10) // Reduced from 30
-                             // Move counter to the left side as well
+                             .padding(.bottom, 10)
                              .offset(x: -UIScreen.main.bounds.width * 0.12)
                              
-                        // Add skip button
                         Button(action: {
-                            // Play a vibration and finish onboarding
                             AudioServicesPlaySystemSound(1519)
                             hasCompletedOnboarding = true
                         }) {
@@ -139,39 +130,37 @@ struct MapView: View {
 
                         Spacer()
                     }
-                    .transition(.opacity.animation(.easeInOut)) // Fade effect
+                    .transition(.opacity.animation(.easeInOut))
                 }
 
-                // Progress indicator for uploads
                 if viewModel.isUploading {
-                    // Center in screen with GeometryReader
                     GeometryReader { geo in
                         VStack {
                             Text("Uploading Video...")
-                                .font(.subheadline) // Smaller font
+                                .font(.subheadline)
                                 .foregroundColor(.white)
                             ProgressView(value: viewModel.uploadProgress)
                                 .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                                .padding(.horizontal, 6) // Reduced padding
-                                .frame(width: 180) // Fixed width, ~40% smaller than default
+                                .padding(.horizontal, 6)
+                                .frame(width: 180)
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 16)
                         .background(Color.black.opacity(0.7))
                         .cornerRadius(10)
                         .shadow(radius: 5)
-                        .frame(width: 200, height: 80) // Fixed smaller size
-                        .position(x: geo.size.width/2, y: geo.size.height/2) // Center in screen
+                        .frame(width: 200, height: 80)
+                        .position(x: geo.size.width/2, y: geo.size.height/2)
                         .transition(.opacity)
                     }
                 }
             }
-            .navigationBarHidden(true) // Hide the navigation bar completely
+            .navigationBarHidden(true)
             .onAppear {
+                print("MapView appeared - centering on user location")
                 viewModel.centerOnUserLocation()
             }
         }
-        // Present video player when needed (applied to NavigationView)
         .fullScreenCover(isPresented: $showingVideoPlayer) {
             if let url = videoURLToPlay {
                 VideoPlayerView(videoURL: url)
@@ -189,7 +178,7 @@ struct MapView: View {
         }
         .alert(viewModel.alertMessage ?? "An error occurred", isPresented: $viewModel.showAlert) {
             Button("OK", role: .cancel) {
-                HapticManager.feedback(.light) // Add subtle feedback when dismissing alerts
+                HapticManager.feedback(.light)
             }
         }
     }
@@ -219,14 +208,27 @@ struct MapViewInternal: UIViewRepresentable {
             maxCenterCoordinateDistance: MapViewConstants.maxZoomDistance
         )
         
-        // Set initial region with minimum zoom level
-        Task { @MainActor in
-            if let location = await viewModel.getCurrentLocation() {
-                let region = MKCoordinateRegion(
-                    center: location.coordinate,
-                    span: MapViewConstants.defaultSpan
-                )
-                mapView.setRegion(region, animated: false)
+        // Set initial region immediately, don't wait for async location
+        if let region = viewModel.mapRegion {
+            // Use the existing region if available
+            mapView.setRegion(region, animated: false)
+        } else {
+            // Set a default region to ensure map appears immediately
+            let fallbackRegion = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194), // San Francisco
+                span: MapViewConstants.defaultSpan
+            )
+            mapView.setRegion(fallbackRegion, animated: false)
+            
+            // Try to get actual location and update if available
+            Task { @MainActor in
+                if let location = await viewModel.getCurrentLocation() {
+                    let region = MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MapViewConstants.defaultSpan
+                    )
+                    mapView.setRegion(region, animated: true)
+                }
             }
         }
         
@@ -243,7 +245,8 @@ struct MapViewInternal: UIViewRepresentable {
         if mapView.mapType != viewModel.mapType {
             UIView.animate(withDuration: 0.3) {
                 mapView.mapType = viewModel.mapType
-                mapView.overrideUserInterfaceStyle = .dark
+                // Avoid overriding interface style; can block tile rendering on some simulator runtimes.
+                // mapView.overrideUserInterfaceStyle = .dark
             }
         }
         

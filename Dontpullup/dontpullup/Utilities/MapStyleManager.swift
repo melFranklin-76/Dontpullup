@@ -7,8 +7,9 @@ enum MapStyleManager {
     /// Applies styling to the given MKMapView
     static func applyCustomStyle(to mapView: MKMapView) {
         // Set basic styling properties directly
-        mapView.mapType = .mutedStandard
-        mapView.overrideUserInterfaceStyle = .dark
+        mapView.mapType = .standard
+        // Rely on system appearance; forcing dark can prevent tile loading on some simulator builds
+        // mapView.overrideUserInterfaceStyle = .dark
         
         // For iOS 16+ apps, Apple recommends their official Map Style Designer:
         // https://mapdesigner.apple.com
