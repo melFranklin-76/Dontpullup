@@ -15,7 +15,7 @@ class HapticManager {
     }
     
     /// Singleton instance for easy access
-    static let shared = HapticManager()
+    private static let shared = HapticManager()
     
     // Private impact generators (reused for efficiency)
     private let lightImpactGenerator = UIImpactFeedbackGenerator(style: .light)
@@ -35,42 +35,42 @@ class HapticManager {
     
     /// Trigger haptic feedback of the specified type
     /// - Parameter type: The type of haptic feedback to trigger
-    func feedback(_ type: FeedbackType) {
+    static func feedback(_ type: FeedbackType) {
         switch type {
         case .light:
-            lightImpactGenerator.impactOccurred()
+            shared.lightImpactGenerator.impactOccurred()
         case .medium:
-            mediumImpactGenerator.impactOccurred()
+            shared.mediumImpactGenerator.impactOccurred()
         case .heavy:
-            heavyImpactGenerator.impactOccurred()
+            shared.heavyImpactGenerator.impactOccurred()
         case .selection:
-            selectionGenerator.selectionChanged()
+            shared.selectionGenerator.selectionChanged()
         case .success:
-            notificationGenerator.notificationOccurred(.success)
+            shared.notificationGenerator.notificationOccurred(.success)
         case .warning:
-            notificationGenerator.notificationOccurred(.warning)
+            shared.notificationGenerator.notificationOccurred(.warning)
         case .error:
-            notificationGenerator.notificationOccurred(.error)
+            shared.notificationGenerator.notificationOccurred(.error)
         }
     }
     
     /// Convenience method for medium impact feedback (most common)
     static func impact() {
-        shared.feedback(.medium)
+        feedback(.medium)
     }
     
     /// Convenience method for success notification feedback
     static func success() {
-        shared.feedback(.success)
+        feedback(.success)
     }
     
     /// Convenience method for error notification feedback
     static func error() {
-        shared.feedback(.error)
+        feedback(.error)
     }
     
     /// Convenience method for selection feedback
     static func selection() {
-        shared.feedback(.selection)
+        feedback(.selection)
     }
 } 
