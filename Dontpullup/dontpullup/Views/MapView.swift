@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import AVKit
 import Combine // Import Combine
+import CoreLocation
 
 // Update the constants to be more specific and avoid naming conflicts
 private enum MapViewConstants {
@@ -32,7 +33,129 @@ class PinAnnotation: MKPointAnnotation {
     }
 }
 
-struct MapView: UIViewRepresentable {
+struct MapView: View {
+    @EnvironmentObject private var viewModel: MapViewModel
+    @State private var selectedPin: Pin?
+    @State private var showingVideoPlayer = false
+    @State private var videoURLToPlay: URL?
+    
+    // Onboarding State
+    @AppStorage("hasCompletedMapOnboarding") var hasCompletedOnboarding = false
+    @State private var currentOnboardingStep = 0
+    private let onboardingInstructions: [String] = [
+        "Tap any indicator to watch its attached video 📢 👊 ☎️.",
+        "Drag your finger across the map to explore other communities.",
+        "To share your experience, long-press within 200 ft of your location.",
+        "Allow access to photo library, select a video (max 3 min). The upload runs in the background & map updates automatically.",
+        "Press 📱 to show only your own pins. Press ✏️ to enter pin-delete mode—tap it again when you're finished.",
+        "Press 📢 for verbal incidents, 👊  physical incidents,  ☎️ for 911 incidents. Press again to reveal all incidents.",
+        "Use ➕ and ➖ to zoom the map in or out.",
+        "Press 🗺️ to change the map style.",
+        "Press 📍 to recenter the map on your current location.",
+        "Press ⚙️ for Settings, Privacy Policy, Terms of Service, and App Info.",
+        "Press ❓ for Help & Guidelines.",
+        "Press 👤 to view your account."
+    ]
+    
+    var body: some View {
+        NavigationView {
+            ZStack { // Use ZStack to overlay onboarding
+                MapViewInternal(viewModel: viewModel)
+                    .edgesIgnoringSafeArea(.all) // Extend map to screen edges
+
+                // UI Elements like buttons, etc.
+                VStack {
+                    Spacer() // Pushes buttons to the bottom or top as needed
+                }
+                
+                // Onboarding Overlay
+                if !hasCompletedOnboarding && currentOnboardingStep < onboardingInstructions.count {
+                    Color.black.opacity(0.5) // Dim background
+                        .edgesIgnoringSafeArea(.all)
+                        .onTapGesture {
+                            // Advance onboarding on tap
+                            currentOnboardingStep += 1
+                            if currentOnboardingStep >= onboardingInstructions.count {
+                                hasCompletedOnboarding = true
+                            }
+                        }
+                    
+                    VStack {
+                        Spacer()
+                        Text(onboardingInstructions[currentOnboardingStep])
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 14)
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(15)
+                            .shadow(radius: 10)
+                            .padding(.bottom, 80)
+
+                        Text("Tap anywhere to continue (\(currentOnboardingStep + 1)/\(onboardingInstructions.count))")
+                             .font(.caption2)
+                             .foregroundColor(.white.opacity(0.8))
+                             .padding(.bottom, 40)
+
+                        Spacer()
+                    }
+                    .transition(.opacity.animation(.easeInOut)) // Fade effect
+                }
+
+                // Progress indicator for uploads
+                if viewModel.isUploading {
+                    // Center in screen with GeometryReader
+                    GeometryReader { geo in
+                        VStack {
+                            Text("Uploading Video...")
+                                .font(.subheadline) // Smaller font
+                                .foregroundColor(.white)
+                            ProgressView(value: viewModel.uploadProgress)
+                                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                                .padding(.horizontal, 6) // Reduced padding
+                                .frame(width: 180) // Fixed width, ~40% smaller than default
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 16)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(10)
+                        .shadow(radius: 5)
+                        .frame(width: 200, height: 80) // Fixed smaller size
+                        .position(x: geo.size.width/2, y: geo.size.height/2) // Center in screen
+                        .transition(.opacity)
+                    }
+                }
+            }
+            .navigationBarHidden(true) // Hide the navigation bar completely
+            .onAppear {
+                viewModel.centerOnUserLocation()
+            }
+        }
+        // Present video player when needed (applied to NavigationView)
+        .fullScreenCover(isPresented: $showingVideoPlayer) {
+            if let url = videoURLToPlay {
+                VideoPlayerView(videoURL: url)
+                    .edgesIgnoringSafeArea(.all)
+                    .onDisappear {
+                        Task {
+                            try? FileManager.default.removeItem(at: url)
+                            print("Cleaned up temporary video file: \(url.path)")
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $viewModel.showingIncidentPicker) {
+            IncidentTypePicker(viewModel: viewModel)
+        }
+        .alert(viewModel.alertMessage ?? "An error occurred", isPresented: $viewModel.showAlert) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+}
+
+struct MapViewInternal: UIViewRepresentable {
     @ObservedObject var viewModel: MapViewModel
     
     func makeUIView(context: Context) -> MKMapView {
@@ -42,7 +165,7 @@ struct MapView: UIViewRepresentable {
         mapView.showsUserLocation = false
         
         // Configure map appearance
-        configureMapView(mapView)
+        MapStyleManager.applyCustomStyle(to: mapView)
         
         // Disable clustering
         mapView.register(
@@ -73,31 +196,6 @@ struct MapView: UIViewRepresentable {
         mapView.addGestureRecognizer(longPress)
         
         return mapView
-    }
-    
-    private func configureMapView(_ mapView: MKMapView) {
-        // Configure base appearance
-        mapView.mapType = .mutedStandard
-        mapView.overrideUserInterfaceStyle = .dark
-        mapView.showsBuildings = false
-        mapView.showsTraffic = false
-        mapView.isPitchEnabled = false
-        mapView.isRotateEnabled = false
-        
-        // Set vibrant tint color
-        mapView.tintColor = UIColor(red: 1.0, green: 0.1, blue: 0.1, alpha: 1.0)
-        
-        // Configure user location view appearance
-        if let userLocationView = mapView.view(for: mapView.userLocation) {
-            userLocationView.tintColor = UIColor(red: 1.0, green: 0.1, blue: 0.1, alpha: 1.0)
-            userLocationView.canShowCallout = false
-        }
-        
-        // Set default camera position
-        let camera = MKMapCamera()
-        camera.pitch = 0
-        camera.altitude = MapViewConstants.defaultAltitude
-        mapView.camera = camera
     }
     
     func updateUIView(_ mapView: MKMapView, context: Context) {
@@ -163,11 +261,11 @@ struct MapView: UIViewRepresentable {
     }
     
     class Coordinator: NSObject, MKMapViewDelegate {
-        var parent: MapView
+        var parent: MapViewInternal
         weak var mapView: MKMapView? // Add weak reference to the map view
         private var cancellables = Set<AnyCancellable>() // Store subscriptions
         
-        init(_ parent: MapView) {
+        init(_ parent: MapViewInternal) {
             self.parent = parent
             super.init()
             
@@ -328,6 +426,7 @@ struct MapView: UIViewRepresentable {
                 Task { @MainActor in
                     if await parent.viewModel.userCanEditPin(pin) {
                         do {
+                            print("Attempting to delete pin: \(pin.id)")
                             try await parent.viewModel.deletePin(pin)
                             // Add deletion animation
                             UIView.animate(withDuration: 0.3, animations: {
@@ -335,11 +434,14 @@ struct MapView: UIViewRepresentable {
                                 view.alpha = 0
                             }) { _ in
                                 mapView.removeAnnotation(annotation)
+                                print("Pin deleted and removed from map: \(pin.id)")
                             }
                         } catch {
+                            print("Error deleting pin: \(error.localizedDescription)")
                             parent.viewModel.showError(error.localizedDescription)
                         }
                     } else {
+                        print("User cannot edit pin: \(pin.id)")
                         parent.viewModel.showError("You can only delete your own pins")
                     }
                 }
@@ -575,12 +677,12 @@ struct ReportButtonOverlay: View {
     @ObservedObject var viewModel: MapViewModel
     let pin: Pin
     let dismissAction: () -> Void // Action to dismiss the player
-
+    
+    @State private var showingReportSheet = false
+    
     var body: some View {
         Button {
-            viewModel.reportPin(pin)
-            // Dismiss the player *after* reporting
-            dismissAction() 
+            showingReportSheet = true
         } label: {
             Label("Report", systemImage: "flag.fill")
                 .padding(8)
@@ -590,7 +692,171 @@ struct ReportButtonOverlay: View {
                 .shadow(radius: 3)
         }
         // Ensure the button itself doesn't expand unnecessarily
-        .fixedSize() 
+        .fixedSize()
+        .sheet(isPresented: $showingReportSheet) {
+            ReportFormView(pin: pin, viewModel: viewModel, isPresented: $showingReportSheet, dismissPlayer: dismissAction)
+        }
     }
 }
-// --- End Overlay View Definition --- 
+// --- End Overlay View Definition ---
+
+// Form for collecting report details
+struct ReportFormView: View {
+    let pin: Pin
+    @ObservedObject var viewModel: MapViewModel
+    @Binding var isPresented: Bool
+    let dismissPlayer: () -> Void
+    
+    @State private var reporterEmail = ""
+    @State private var reportReason = ""
+    @State private var isSubmitting = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @FocusState private var emailFieldFocused: Bool
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Report Information")) {
+                    TextField("Your Email (Optional)", text: $reporterEmail)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .focused($emailFieldFocused)
+                    
+                    Picker("Reason", selection: $reportReason) {
+                        Text("Select a reason").tag("")
+                        Text("Inappropriate content").tag("inappropriate")
+                        Text("Misleading information").tag("misleading")
+                        Text("Spam").tag("spam")
+                        Text("Other").tag("other")
+                    }
+                    .pickerStyle(.menu)
+                }
+                
+                Section {
+                    VStack(spacing: 10) {
+                        Button(action: submitReport) {
+                            HStack {
+                                Spacer()
+                                if isSubmitting {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                        .padding(.trailing, 10)
+                                }
+                                Text("Submit Report")
+                                    .foregroundColor(.white)
+                                    .bold()
+                                Spacer()
+                            }
+                        }
+                        .padding(.vertical, 10)
+                        .background(Color.red)
+                        .cornerRadius(8)
+                        .disabled(isSubmitting || reportReason.isEmpty)
+                        
+                        // Add a more prominent Cancel button
+                        Button(action: cancel) {
+                            HStack {
+                                Spacer()
+                                Text("Cancel")
+                                    .foregroundColor(.white)
+                                    .bold()
+                                Spacer()
+                            }
+                        }
+                        .padding(.vertical, 10)
+                        .background(Color.gray)
+                        .cornerRadius(8)
+                        .disabled(isSubmitting)
+                    }
+                }
+                .listRowBackground(Color.clear)
+            }
+            .navigationTitle("Report Content")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(content: {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        cancel()
+                    }
+                    .foregroundColor(.white)
+                }
+            })
+            .onAppear {
+                // Focus the email field on appear
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    emailFieldFocused = true
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) {
+                    // Close the sheet if there's an error
+                    if !isSubmitting {
+                        closeAllSheets()
+                    }
+                }
+            } message: {
+                Text(errorMessage)
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+    
+    private func submitReport() {
+        guard !reportReason.isEmpty else {
+            errorMessage = "Please select a reason for reporting"
+            showError = true
+            return
+        }
+        
+        isSubmitting = true
+        
+        // Call viewModel with the additional info
+        viewModel.reportPin(pin, email: reporterEmail, reason: reportReason) { success in
+            isSubmitting = false
+            
+            if success {
+                // Successfully submitted, close all sheets
+                closeAllSheets()
+            } else {
+                // Show error if submission failed
+                errorMessage = "Failed to submit report. Please try again."
+                showError = true
+            }
+        }
+    }
+    
+    private func cancel() {
+        // Only allow cancellation if not currently submitting
+        if !isSubmitting {
+            isPresented = false
+        }
+    }
+    
+    private func closeAllSheets() {
+        // First close the report form
+        isPresented = false
+        
+        // Then dismiss the player after a slight delay to ensure smooth dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            dismissPlayer()
+        }
+    }
+}
+
+// Simple Video Player View (Example)
+struct VideoPlayerView: View {
+    let videoURL: URL
+
+    var body: some View {
+        let player = AVPlayer(url: videoURL)
+        VideoPlayer(player: player)
+            .onAppear {
+                player.play()
+            }
+            .onDisappear {
+                player.pause()
+            }
+    }
+} 

@@ -1,4 +1,6 @@
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
 
 struct SettingsView: View {
     @EnvironmentObject private var authState: AuthState
@@ -6,6 +8,13 @@ struct SettingsView: View {
     @State private var locationTrackingEnabled = true
     @State private var hapticFeedbackEnabled = true
     @State private var showResetConfirmation = false
+    @State private var showResetOnboardingConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var isProcessingDeletion = false
+    @State private var deletionError: String? = nil
+    @State private var showDeletionError = false
+    @ObservedObject private var onboardingManager = OnboardingManager.shared
+    @Environment(\.presentationMode) var presentationMode
     
     var body: some View {
         NavigationView {
@@ -40,6 +49,15 @@ struct SettingsView: View {
                         }
                     }
                     
+                    Section(header: Text("Help & Tutorials").foregroundColor(.white)) {
+                        Button(action: {
+                            showResetOnboardingConfirmation = true
+                        }) {
+                            Text("Restart App Tour")
+                                .foregroundColor(.white)
+                        }
+                    }
+                    
                     Section {
                         Button(action: {
                             showResetConfirmation = true
@@ -51,6 +69,31 @@ struct SettingsView: View {
                                 Spacer()
                             }
                         }
+                    }
+                    
+                    // Delete Account Section
+                    Section {
+                        Button(action: {
+                            showDeleteAccountConfirmation = true
+                        }) {
+                            HStack {
+                                Spacer()
+                                if isProcessingDeletion {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .red))
+                                        .padding(.trailing, 10)
+                                }
+                                Text("Delete My Account")
+                                    .foregroundColor(.red)
+                                    .fontWeight(.bold)
+                                Spacer()
+                            }
+                        }
+                        .disabled(isProcessingDeletion)
+                    } footer: {
+                        Text("This will permanently delete your account and all associated data. This action cannot be undone.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
                     
                     Section {
@@ -80,6 +123,27 @@ struct SettingsView: View {
             } message: {
                 Text("Are you sure you want to reset all settings to their default values?")
             }
+            .alert("Restart App Tour", isPresented: $showResetOnboardingConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Restart", role: .none) {
+                    resetOnboarding()
+                }
+            } message: {
+                Text("This will restart the app tour tooltips the next time you return to the map. Continue?")
+            }
+            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    deleteAccount()
+                }
+            } message: {
+                Text("Are you sure you want to permanently delete your account and all your data? This action cannot be undone.")
+            }
+            .alert("Error Deleting Account", isPresented: $showDeletionError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deletionError ?? "An unknown error occurred.")
+            }
         }
         .navigationViewStyle(.stack)
     }
@@ -89,6 +153,92 @@ struct SettingsView: View {
         locationTrackingEnabled = true
         hapticFeedbackEnabled = true
         print("Settings reset to defaults.")
+    }
+    
+    private func resetOnboarding() {
+        onboardingManager.resetOnboarding()
+        print("Onboarding tour will restart next time you return to the map.")
+    }
+    
+    private func deleteAccount() {
+        guard let user = Auth.auth().currentUser else {
+            deletionError = "No user is currently signed in."
+            showDeletionError = true
+            return
+        }
+        
+        isProcessingDeletion = true
+        
+        // 1. Delete all user data from Firestore
+        deleteUserData(userId: user.uid) { firestoreError in
+            if let error = firestoreError {
+                // Handle Firestore deletion error
+                handleDeletionError(error.localizedDescription)
+                return
+            }
+            
+            // 2. Delete user authentication account
+            user.delete { authError in
+                if let error = authError {
+                    // Handle authentication deletion error
+                    handleDeletionError(error.localizedDescription)
+                    return
+                }
+                
+                // Success - account fully deleted
+                Task { @MainActor in
+                    isProcessingDeletion = false
+                    // Sign out and dismiss settings view
+                    try? Auth.auth().signOut()
+                    authState.isAuthenticated = false
+                    presentationMode.wrappedValue.dismiss()
+                }
+            }
+        }
+    }
+    
+    private func deleteUserData(userId: String, completion: @escaping (Error?) -> Void) {
+        let db = Firestore.firestore()
+        let batch = db.batch()
+        
+        // Delete user pins
+        db.collection("pins").whereField("userID", isEqualTo: userId).getDocuments { snapshot, error in
+            if let error = error {
+                completion(error)
+                return
+            }
+            
+            // Add each pin document to batch delete
+            for document in snapshot?.documents ?? [] {
+                batch.deleteDocument(document.reference)
+            }
+            
+            // Delete user reports
+            db.collection("reports").whereField("reportedBy", isEqualTo: userId).getDocuments { reportSnapshot, reportError in
+                if let error = reportError {
+                    completion(error)
+                    return
+                }
+                
+                // Add each report document to batch delete
+                for document in reportSnapshot?.documents ?? [] {
+                    batch.deleteDocument(document.reference)
+                }
+                
+                // Commit all deletions in a single batch
+                batch.commit { batchError in
+                    completion(batchError)
+                }
+            }
+        }
+    }
+    
+    private func handleDeletionError(_ message: String) {
+        Task { @MainActor in
+            isProcessingDeletion = false
+            deletionError = "Error deleting account: \(message)"
+            showDeletionError = true
+        }
     }
 }
 

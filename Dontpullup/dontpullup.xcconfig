@@ -1,0 +1,11 @@
+// Debug information format settings for proper dSYM generation
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+STRIP_INSTALLED_PRODUCT = NO
+COPY_PHASE_STRIP = NO
+STRIP_STYLE = debugging
+DEPLOYMENT_POSTPROCESSING = NO
+
+// Resource paths
+RESOURCES_FOLDER_PATH = $(CONTENTS_FOLDER_PATH)/Resources
+
+// Add more settings as needed 

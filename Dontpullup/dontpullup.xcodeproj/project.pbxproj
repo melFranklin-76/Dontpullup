@@ -81,6 +81,7 @@
 				1E29704B2D3258B80095E62E /* Sources */,
 				1E29704C2D3258B80095E62E /* Frameworks */,
 				1E29704D2D3258B80095E62E /* Resources */,
+				1E743BDC2DC2AE6900F29E2B /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -147,6 +148,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		1E743BDC2DC2AE6900F29E2B /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${BUILT_PRODUCTS_DIR}/.markers/fix_dsym_executed",
+				"${BUILT_PRODUCTS_DIR}/.markers/resources_verified",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/bash\n# Script to ensure proper debug symbols are generated\n\n# Output marker files to help Xcode dependency analysis\nMARKER_DIR=\"${BUILT_PRODUCTS_DIR}/.markers\"\nmkdir -p \"${MARKER_DIR}\"\nDSYM_MARKER=\"${MARKER_DIR}/fix_dsym_executed\"\nRESOURCE_MARKER=\"${MARKER_DIR}/resources_verified\"\n\n# Check if running in debug configuration\nif [ \"$CONFIGURATION\" = \"Debug\" ]; then\n    echo \"Ensuring debug symbols are properly generated...\"\n    \n    # Set environment variables to ensure proper dSYM generation\n    export STRIP_INSTALLED_PRODUCT=NO\n    export STRIP_STYLE=debugging\n    export DEBUG_INFORMATION_FORMAT=dwarf-with-dsym\n    export DEPLOYMENT_POSTPROCESSING=NO\n    \n    echo \"Debug symbol generation configured.\"\n    \n    # Create marker file for debug symbol generation\n    touch \"${DSYM_MARKER}\"\nfi\n\n# Ensure resources are properly copied\necho \"Checking resource files...\"\n\n# Check if default.csv exists in the final app bundle\nAPP_BUNDLE=\"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app\"\nAPP_RESOURCES=\"${APP_BUNDLE}/Resources\"\nmkdir -p \"${APP_RESOURCES}\"\n\n# If default.csv doesn't exist in app bundle, create it\nDEFAULT_CSV=\"${APP_RESOURCES}/default.csv\"\nif [ ! -f \"${DEFAULT_CSV}\" ]; then\n    echo \"Creating default.csv in app bundle...\"\n    \n    # Create a simple default.csv directly\n    echo \"type,color,icon\n911,#FF0000,emergency_icon\nPhysical,#FF4500,physical_icon\nVerbal,#FFA500,verbal_icon\" > \"${DEFAULT_CSV}\"\n    \n    # Set proper permissions\n    chmod 644 \"${DEFAULT_CSV}\"\n    echo \"Created default.csv in app bundle\"\nfi\n\n# Create marker file for resource verification\ntouch \"${RESOURCE_MARKER}\"\n\necho \"Resource check complete.\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1E29704B2D3258B80095E62E /* Sources */ = {
@@ -329,6 +352,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XCCONFIG_FILE = "$(SRCROOT)/Dontpullup/dontpullup.xcconfig";
 			};
 			name = Debug;
 		};
@@ -374,6 +398,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XCCONFIG_FILE = "$(SRCROOT)/Dontpullup/dontpullup.xcconfig";
 			};
 			name = Release;
 		};

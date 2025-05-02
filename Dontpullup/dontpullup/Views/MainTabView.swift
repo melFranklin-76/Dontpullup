@@ -8,6 +8,7 @@ struct MainTabView: View {
     @EnvironmentObject private var authState: AuthState
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @StateObject private var mapViewModel = MapViewModel()
+    @StateObject private var onboardingManager = OnboardingManager.shared
     
     var body: some View {
         // Directly show MapContentView without TabView wrapper
@@ -15,7 +16,12 @@ struct MainTabView: View {
             .environmentObject(mapViewModel)
             .environmentObject(authState)
             .environmentObject(networkMonitor)
+            .environmentObject(onboardingManager)
             .preferredColorScheme(.dark)
+            .onAppear {
+                // Start onboarding when app appears
+                onboardingManager.startOnboarding()
+            }
     }
 }
 
@@ -23,6 +29,7 @@ struct MapContentView: View {
     @EnvironmentObject private var mapViewModel: MapViewModel
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var authState: AuthState
+    @EnvironmentObject private var onboardingManager: OnboardingManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showingSettings = false
     @State private var showingProfile = false
@@ -53,7 +60,7 @@ struct MapContentView: View {
             ZStack {
                 // Wrap MapView in ZStack
                 ZStack {
-                    MapView(viewModel: mapViewModel)
+                    MapView()
                         .edgesIgnoringSafeArea(.all)
                         .preferredColorScheme(.dark)
                         .onAppear {
@@ -198,6 +205,7 @@ struct MapContentView: View {
                             }
                         }
                         .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16) // Adaptive padding
+                        .tag(101) // Tag for onboarding tooltip
                     }
                     
                     Spacer()
@@ -258,6 +266,7 @@ struct MapContentView: View {
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
+                        .tag(100) // Tag for onboarding tooltip
                         
                         // Edit Mode Button (Restored)
                         Button(action: {
@@ -297,11 +306,14 @@ struct MapContentView: View {
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
+                        .tag(102) // Tag for onboarding tooltip
                     }
                     .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 12) // Adaptive padding
                     .padding(.bottom, horizontalSizeClass == .regular ? 10 : 4) // Adaptive padding
                 }
             }
+            // Apply onboarding tooltips to the entire view
+            .withOnboardingTooltips()
         }
         // Listen for notification events using onReceive
         .onReceive(termsOfServicePublisher) { _ in

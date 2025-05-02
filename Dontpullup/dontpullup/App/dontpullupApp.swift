@@ -7,6 +7,7 @@ import FirebaseAnalytics
 import AVFoundation
 import AVKit
 import OSLog
+import ObjectiveC
 
 // Logger for the App level if needed
 private let appLogger = Logger(subsystem: "com.dontpullup.app", category: "Application")
@@ -76,6 +77,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = (scene as? UIWindowScene) else { return }
         print("SceneDelegate: Scene will connect")
         window = UIWindow(windowScene: windowScene)
+        
+        // Apply the keyboard constraint fix globally
+        UIViewController.swizzleViewDidLoad()
     }
     
     func sceneDidDisconnect(_ scene: UIScene) {
@@ -96,5 +100,63 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     
     func sceneDidEnterBackground(_ scene: UIScene) {
         print("SceneDelegate: Scene did enter background")
+    }
+}
+
+// Extend UIViewController with method swizzling to apply keyboard constraints fix
+extension UIViewController {
+    static var swizzleViewDidLoadOnce: Bool = false
+    
+    static func swizzleViewDidLoad() {
+        guard !swizzleViewDidLoadOnce else { return }
+        swizzleViewDidLoadOnce = true
+        
+        let originalSelector = #selector(UIViewController.viewDidLoad)
+        let swizzledSelector = #selector(UIViewController.swizzled_viewDidLoad)
+        
+        guard let originalMethod = class_getInstanceMethod(UIViewController.self, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(UIViewController.self, swizzledSelector) else {
+            return
+        }
+        
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+    
+    @objc func swizzled_viewDidLoad() {
+        // Call original viewDidLoad
+        self.swizzled_viewDidLoad()
+        
+        // Apply keyboard constraint fix
+        DispatchQueue.main.async {
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) {
+                NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { _ in
+                    // Fix assistant height constraint
+                    DispatchQueue.main.async {
+                        keyWindow.subviews.forEach { view in
+                            Self.findAndFixAssistantHeightConstraint(in: view)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private static func findAndFixAssistantHeightConstraint(in view: UIView) {
+        // Check if the view has a class name containing "SystemInputAssistantView"
+        let viewTypeName = String(describing: type(of: view))
+        if viewTypeName.contains("SystemInputAssistantView") {
+            // Remove height constraint with identifier "assistantHeight"
+            for constraint in view.constraints where constraint.identifier == "assistantHeight" {
+                constraint.isActive = false
+                print("Fixed keyboard input assistant constraint")
+                break
+            }
+        }
+        
+        // Continue searching in subviews
+        for subview in view.subviews {
+            findAndFixAssistantHeightConstraint(in: subview)
+        }
     }
 }

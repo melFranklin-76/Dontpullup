@@ -420,30 +420,88 @@ class MapViewModel: NSObject, ObservableObject {
     
     // MARK: - Public Methods
     func toggleMapType() {
-        mapType = mapType.next
+        // Skip satellite mode since the style files aren't properly included
+        // This prevents the "Failed to locate resource named satellite@3x.styl" errors
+        switch mapType {
+        case .standard:
+            mapType = .hybrid // Skip satellite and go directly to hybrid
+        case .hybrid:
+            mapType = .mutedStandard
+        case .mutedStandard, .satelliteFlyover, .hybridFlyover, .satellite:
+            mapType = .standard
+        @unknown default:
+            mapType = .standard
+        }
     }
     
     func centerOnUserLocation() {
-        guard let location = locationManager.location else {
-            logger.warning("Cannot center on user location: location is nil")
+        // Use the instance property instead of the deprecated static method
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+            return
+        
+        case .restricted, .denied:
+            showError("Location access is required to center on your location")
+            return
+        
+        case .authorizedWhenInUse, .authorizedAlways:
+            // Continue with location check
+            break
+        
+        @unknown default:
             return
         }
         
-        let region = MKCoordinateRegion(
-            center: location.coordinate,
-            span: MapConstants.defaultSpan
-        )
-        
-        // Only set region if we haven't set initial region or if user explicitly requests it
-        if !hasSetInitialRegion || mapRegion == nil {
-            hasSetInitialRegion = true
+        // Now check for actual location
+        if let userLocation = locationManager.location {
+            let tightZoomSpan = MKCoordinateSpan(
+                latitudeDelta: MapConstants.mapSpanDegrees * 0.3, // ~200-ft window
+                longitudeDelta: MapConstants.mapSpanDegrees * 0.3
+            )
+            let region = MKCoordinateRegion(
+                center: userLocation.coordinate,
+                span: tightZoomSpan
+            )
             mapRegion = region
+            hasSetInitialRegion = true
+            print("Centered on user location")
+        } else {
+            // Try to get location after delay as fallback
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self = self else { return }
+                if let delayedLocation = self.locationManager.location {
+                    let region = MKCoordinateRegion(
+                        center: delayedLocation.coordinate,
+                        span: MKCoordinateSpan(
+                            latitudeDelta: MapConstants.mapSpanDegrees * 0.3,
+                            longitudeDelta: MapConstants.mapSpanDegrees * 0.3
+                        )
+                    )
+                    self.mapRegion = region
+                    self.hasSetInitialRegion = true
+                } else {
+                    // Use default location if all else fails
+                    self.mapRegion = MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+                        span: MapConstants.defaultSpan
+                    )
+                    self.hasSetInitialRegion = true
+                    self.showError("Could not get your location")
+                }
+            }
         }
     }
     
     func toggleEditMode() {
         print("Toggling edit mode from \(isEditMode) to \(!isEditMode)")
         isEditMode.toggle()
+        
+        // Clear selection if turning off edit mode
+        if !isEditMode {
+            // If we were editing and turned it off, make sure we update the pins display
+            updateFilteredPins()
+        }
     }
     
     func toggleFilter(_ type: IncidentType) {
@@ -1256,36 +1314,38 @@ class MapViewModel: NSObject, ObservableObject {
     
     @MainActor
     func signOut() {
+        // First clean up all resources
+        uploadTasks.forEach { $0.cancel() }
+        uploadQueue.removeAll()
+        isUploadInProgress = false
+        isUploading = false
+        
+        // Clear local data
+        pins.removeAll()
+        filteredPins.removeAll()
+        selectedFilters.removeAll()
+        pendingCoordinate = nil
+        currentIncidentType = nil
+        
+        // Clear cached data
+        UserDefaults.standard.removeObject(forKey: "CachedPins")
+        UserDefaults.standard.removeObject(forKey: "FailedUploads")
+        
+        // Sign out from Firebase - requires try
         do {
-            // Cancel any ongoing uploads
-            uploadTasks.forEach { $0.cancel() }
-            uploadQueue.removeAll()
-            isUploadInProgress = false
-            isUploading = false
-            
-            // Clear local data
-            pins.removeAll()
-            filteredPins.removeAll()
-            selectedFilters.removeAll()
-            pendingCoordinate = nil
-            currentIncidentType = nil
-            
-            // Clear cached data
-            UserDefaults.standard.removeObject(forKey: "CachedPins")
-            UserDefaults.standard.removeObject(forKey: "FailedUploads")
-            
-            // Sign out from Firebase
             try Auth.auth().signOut()
-            
-            print("Successfully signed out")
+            print("Signed out successfully")
         } catch {
+            print("Error signing out: \(error.localizedDescription)")
             showError("Failed to sign out: \(error.localizedDescription)")
         }
     }
     
     func deletePin(_ pin: Pin) async throws {
+        print("Starting delete pin process for: \(pin.id)")
         // First check if user can edit this pin
         guard await userCanEditPin(pin) else {
+            print("User is not authorized to delete this pin: \(pin.id)")
             throw NSError(
                 domain: "PinDeletion",
                 code: -1,
@@ -1296,6 +1356,7 @@ class MapViewModel: NSObject, ObservableObject {
         // Double check authentication
         guard let currentUserId = Auth.auth().currentUser?.uid,
               currentUserId == pin.userId else {
+            print("Authentication error - current user: \(Auth.auth().currentUser?.uid ?? "nil"), pin user: \(pin.userId)")
             throw NSError(
                 domain: "PinDeletion",
                 code: -2,
@@ -1304,19 +1365,35 @@ class MapViewModel: NSObject, ObservableObject {
         }
         
         // If authorized, proceed with deletion
-        if let videoURL = URL(string: pin.videoURL) {
-            let storageRef = Storage.storage().reference(forURL: videoURL.absoluteString)
-            try await storageRef.delete()
-        }
+        print("User authorized to delete pin: \(pin.id)")
         
-        // Delete from Firestore
-        try await FirebaseManager.shared.firestore().collection("pins").document(pin.id).delete()
-        
-        // Update local arrays on main thread
-        await MainActor.run {
-            self.pins.removeAll { $0.id == pin.id }
-            self.filteredPins.removeAll { $0.id == pin.id }
-            self.updateFilteredPins()
+        // First try deleting from Firestore, then handle video storage
+        do {
+            try await FirebaseManager.shared.firestore().collection("pins").document(pin.id).delete()
+            print("Successfully deleted pin from Firestore: \(pin.id)")
+            
+            // After Firestore success, try video deletion (but don't fail if it doesn't work)
+            if let videoURL = URL(string: pin.videoURL) {
+                do {
+                    let storageRef = Storage.storage().reference(forURL: videoURL.absoluteString)
+                    try await storageRef.delete()
+                    print("Successfully deleted video for pin: \(pin.id)")
+                } catch {
+                    // Just log video deletion error but don't prevent pin deletion
+                    print("Warning: Could not delete video, but pin was deleted: \(error.localizedDescription)")
+                }
+            }
+            
+            // Update local arrays on main thread
+            await MainActor.run {
+                print("Updating UI after pin deletion: \(pin.id)")
+                self.pins.removeAll { $0.id == pin.id }
+                self.filteredPins.removeAll { $0.id == pin.id }
+                self.updateFilteredPins()
+            }
+        } catch {
+            print("Failed to delete pin from Firestore: \(error.localizedDescription)")
+            throw error
         }
     }
     
@@ -1529,20 +1606,14 @@ class MapViewModel: NSObject, ObservableObject {
     @MainActor
     func reportPin(_ pin: Pin) {
         Task {
-            // Ensure user is authenticated before reporting
-            guard let userId = Auth.auth().currentUser?.uid, !userId.isEmpty else {
-                self.alertMessage = "You must be signed in to report a video."
-                self.showAlert = true
-                return
-            }
-
+            // No longer require authentication
             let db = FirebaseManager.shared.firestore()
             do {
-                print("Attempting to report pin \(pin.id) by user ID: \(userId)")
+                print("Attempting to report pin \(pin.id)")
                 let reportData: [String: Any] = [
                     "pinId": pin.id,
-                    "reportedBy": userId,
-                    "reportedAt": FieldValue.serverTimestamp()
+                    "reason": "general",
+                    "timestamp": FieldValue.serverTimestamp()
                 ]
                 try await db.collection("reports").addDocument(data: reportData)
                 self.alertMessage = "Thank you for reporting this video. Our moderators will review it."
@@ -1555,13 +1626,35 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
 
+    @MainActor
+    func reportPin(_ pin: Pin, email: String, reason: String, completion: @escaping (Bool) -> Void) {
+        // Firestore() doesn't throw, so no try needed
+        let firestore = FirebaseManager.shared.firestore()
+        
+        let report: [String: Any] = [
+            "pinId": pin.id,
+            "reporterEmail": email,
+            "reason": reason,
+            "timestamp": FieldValue.serverTimestamp(),
+            "status": "pending"
+        ]
+        
+        firestore.collection("reports").addDocument(data: report) { error in
+            if let error = error {
+                print("Error submitting report: \(error.localizedDescription)")
+                completion(false)
+            } else {
+                print("Report submitted successfully")
+                completion(true)
+            }
+        }
+    }
+
     func zoomIn() {
-        logger.debug("Zoom In requested via ViewModel")
         zoomInSubject.send()
     }
     
     func zoomOut() {
-        logger.debug("Zoom Out requested via ViewModel")
         zoomOutSubject.send()
     }
 
@@ -1682,3 +1775,5 @@ private extension MKMapType {
         }
     }
 }
+
+
