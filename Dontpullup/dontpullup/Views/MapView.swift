@@ -36,9 +36,15 @@ class PinAnnotation: MKPointAnnotation {
 
 struct MapView: View {
     @EnvironmentObject private var viewModel: MapViewModel
+    @EnvironmentObject private var authState: AuthState
+    @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
     @State private var selectedPin: Pin?
     @State private var showingVideoPlayer = false
     @State private var videoURLToPlay: URL?
+    @State private var showingSettings = false
+    @State private var showingProfile = false
     @State private var errorState = false
     @State private var errorMessage = ""
     
@@ -58,15 +64,171 @@ struct MapView: View {
     ]
     
     var body: some View {
-        NavigationView {
+        GeometryReader { geometry in
+            // Single ZStack that contains everything
             ZStack {
+                // Base map layer
                 MapViewInternal(viewModel: viewModel)
                     .edgesIgnoringSafeArea(.all)
                 
+                // Add all control overlays
+                
+                // 1. Filter buttons (right side)
                 VStack {
                     Spacer()
+                    // Use adaptive spacing based on size class
+                    let filterButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 18 : 12
+                    VStack(spacing: filterButtonSpacing) {
+                        ForEach(IncidentType.allCases, id: \.self) { type in
+                            filterButton(for: type, size: geometry.size)
+                        }
+                        
+                        // Device-specific pins filter button (shows only my pins)
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            viewModel.toggleMyPinsFilter()
+                        }) {
+                            ZStack {
+                                let baseSize: CGFloat = horizontalSizeClass == .regular ? 48 : 44
+                                let adjustedSize = baseSize * 0.9
+                                let baseFont: CGFloat = horizontalSizeClass == .regular ? 24 : 20
+                                let adjustedFont = baseFont * 0.9
+                                
+                                Circle()
+                                    .fill(viewModel.showingOnlyMyPins ? Color.blue : Color.gray.opacity(0.5))
+                                    .frame(width: adjustedSize, height: adjustedSize)
+                                
+                                Text("📱")
+                                    .font(.system(size: adjustedFont))
+                            }
+                        }
+                    }
+                    .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16)
+                    .offset(y: -geometry.size.height * 0.25) // elevate stack ~25% screen height
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing) // Right align
+                
+                // 2. Zoom controls (Bottom right)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            let zoomButtonSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
+                            Button(action: { viewModel.zoomIn() }) {
+                                Image(systemName: "plus.magnifyingglass")
+                                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+                                    .foregroundColor(.white)
+                                    .frame(width: zoomButtonSize, height: zoomButtonSize)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                            Button(action: { viewModel.zoomOut() }) {
+                                Image(systemName: "minus.magnifyingglass")
+                                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+                                    .foregroundColor(.white)
+                                    .frame(width: zoomButtonSize, height: zoomButtonSize)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(Circle())
+                            }
+                        }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 60)
+                    }
                 }
                 
+                // 3. Bottom navigation controls
+                VStack {
+                    Spacer()
+                    let bottomControlSize: CGFloat = horizontalSizeClass == .regular ? 54 : 44
+                    let bottomControlSpacing: CGFloat = horizontalSizeClass == .regular ? 24 : 16
+                    
+                    HStack(spacing: bottomControlSpacing) {
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            viewModel.showingHelp = true
+                        }) {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
+                        // Settings Button
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            showingSettings = true
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
+                        // Map Type Button
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            viewModel.toggleMapType()
+                        }) {
+                            Image(systemName: "map.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
+                        Spacer()
+                        
+                        // Center Location Button
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            viewModel.centerOnUserLocation()
+                        }) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
+                        // Edit Mode Button
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            viewModel.toggleEditMode()
+                        }) {
+                            Image(systemName: viewModel.isEditMode ? "xmark.circle.fill" : "pencil.circle.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(viewModel.isEditMode ? .red : .white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                        
+                        // Profile Button
+                        Button(action: {
+                            HapticManager.feedback(.medium)
+                            showingProfile = true
+                        }) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
+                                .foregroundColor(.white)
+                                .frame(width: bottomControlSize, height: bottomControlSize)
+                                .background(Color.black.opacity(0.4))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 12)
+                    .padding(.bottom, horizontalSizeClass == .regular ? 10 : 4)
+                }
+                
+                // Onboarding overlay
                 if !hasCompletedOnboarding && currentOnboardingStep < onboardingInstructions.count {
                     Color.black.opacity(0.5)
                         .edgesIgnoringSafeArea(.all)
@@ -133,6 +295,7 @@ struct MapView: View {
                     .transition(.opacity.animation(.easeInOut))
                 }
 
+                // Progress indicator for uploads
                 if viewModel.isUploading {
                     GeometryReader { geo in
                         VStack {
@@ -155,11 +318,11 @@ struct MapView: View {
                     }
                 }
             }
-            .navigationBarHidden(true)
-            .onAppear {
-                print("MapView appeared - centering on user location")
-                viewModel.centerOnUserLocation()
-            }
+        }
+        .ignoresSafeArea(.all)
+        .onAppear {
+            print("MapView appeared - centering on user location")
+            viewModel.centerOnUserLocation()
         }
         .fullScreenCover(isPresented: $showingVideoPlayer) {
             if let url = videoURLToPlay {
@@ -176,10 +339,47 @@ struct MapView: View {
         .sheet(isPresented: $viewModel.showingIncidentPicker) {
             IncidentTypePicker(viewModel: viewModel)
         }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environmentObject(authState)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
+                .environmentObject(authState)
+        }
+        .sheet(isPresented: $viewModel.showingHelp) {
+            HelpView()
+        }
         .alert(viewModel.alertMessage ?? "An error occurred", isPresented: $viewModel.showAlert) {
             Button("OK", role: .cancel) {
                 HapticManager.feedback(.light)
             }
+        }
+    }
+    
+    // Helper function for filter buttons
+    private func filterButton(for type: IncidentType, size: CGSize) -> some View {
+        let isSelected = Task { @MainActor in
+            await viewModel.isFilterActive(type)
+        }
+        
+        return Button(action: {
+            HapticManager.feedback(.medium)
+            viewModel.toggleFilter(type)
+        }) {
+            ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.5))
+                    .frame(width: horizontalSizeClass == .regular ? 48 : 44, height: horizontalSizeClass == .regular ? 48 : 44)
+                
+                Text(type.emoji)
+                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+            }
+            .overlay(
+                Circle()
+                    .stroke(Color.blue, lineWidth: 2)
+                    .opacity(Task { @MainActor in await viewModel.isFilterActive(type) }.value ? 1 : 0)
+            )
         }
     }
 }
@@ -190,8 +390,14 @@ struct MapViewInternal: UIViewRepresentable {
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
-        context.coordinator.mapView = mapView // Assign the map view instance to the coordinator
-        mapView.showsUserLocation = false
+        context.coordinator.mapView = mapView
+        
+        // Ensure the map fills the entire area
+        mapView.frame = UIScreen.main.bounds
+        mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        
+        // Ensure user location shows
+        mapView.showsUserLocation = true
         
         // Configure map appearance
         MapStyleManager.applyCustomStyle(to: mapView)

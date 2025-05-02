@@ -10,8 +10,8 @@ struct MainTabView: View {
     @StateObject private var mapViewModel = MapViewModel()
     
     var body: some View {
-        // Directly show MapContentView without TabView wrapper
-        MapContentView()
+        // Directly use the fixed MapView
+        MapView()
             .environmentObject(mapViewModel)
             .environmentObject(authState)
             .environmentObject(networkMonitor)
