@@ -43,18 +43,15 @@ struct MapView: View {
     @AppStorage("hasCompletedMapOnboarding") var hasCompletedOnboarding = false
     @State private var currentOnboardingStep = 0
     private let onboardingInstructions: [String] = [
-        "Tap any indicator to watch its attached video 📢 👊 ☎️.",
-        "Drag your finger across the map to explore other communities.",
-        "To share your experience, long-press within 200 ft of your location.",
-        "Allow access to photo library, select a video (max 3 min). The upload runs in the background & map updates automatically.",
-        "Press 📱 to show only your own pins. Press ✏️ to enter pin-delete mode—tap it again when you're finished.",
-        "Press 📢 for verbal incidents, 👊  physical incidents,  ☎️ for 911 incidents. Press again to reveal all incidents.",
-        "Use ➕ and ➖ to zoom the map in or out.",
-        "Press 🗺️ to change the map style.",
-        "Press 📍 to recenter the map on your current location.",
-        "Press ⚙️ for Settings, Privacy Policy, Terms of Service, and App Info.",
-        "Press ❓ for Help & Guidelines.",
-        "Press 👤 to view your account."
+        "Tap any indicator to watch its attached video 📢 👊 ☎️. Drag to explore communities.",
+        "To share your experience, long-press within 200 ft of your location & choose a video (max 3 min).",
+        "Press 📱 to show only your pins. Use ✏️ to delete your pins (enter/exit edit mode).",
+        "Press 📢 for verbal incidents, 👊 physical incidents, ☎️ for emergency incidents.",
+        "Use ➕ and ➖ to zoom the map. Press 🗺️ to change map style.",
+        "Press 📍 to center the map on your current location.",
+        "Press ❓ for Help & Guidelines. Press ⚙️ for Settings & Info.",
+        "Press 👤 to view your account and profile options.",
+        "Upload progress shows in the center of screen. Pins update automatically."
     ]
     
     var body: some View {
@@ -84,21 +81,23 @@ struct MapView: View {
                     VStack {
                         Spacer()
                         Text(onboardingInstructions[currentOnboardingStep])
-                            .font(.title3)
-                            .fontWeight(.semibold)
+                            .font(.subheadline) // Reduced from title3 to subheadline (smaller)
+                            .fontWeight(.medium) // Changed from semibold to medium
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 14)
+                            .lineSpacing(-2) // Tighter line spacing
+                            .padding(.horizontal, 16) // Reduced from 22
+                            .padding(.vertical, 10) // Reduced from 14
                             .background(Color.black.opacity(0.7))
-                            .cornerRadius(15)
-                            .shadow(radius: 10)
-                            .padding(.bottom, 80)
+                            .cornerRadius(12) // Reduced from 15
+                            .shadow(radius: 8) // Reduced from 10
+                            .frame(maxWidth: UIScreen.main.bounds.width * 0.75) // Constrain width to 75% of screen
+                            .padding(.bottom, 60) // Reduced from 80
 
                         Text("Tap anywhere to continue (\(currentOnboardingStep + 1)/\(onboardingInstructions.count))")
                              .font(.caption2)
                              .foregroundColor(.white.opacity(0.8))
-                             .padding(.bottom, 40)
+                             .padding(.bottom, 30) // Reduced from 40
 
                         Spacer()
                     }
