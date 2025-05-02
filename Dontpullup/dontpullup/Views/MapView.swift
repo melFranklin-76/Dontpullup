@@ -3,6 +3,7 @@ import MapKit
 import AVKit
 import Combine // Import Combine
 import CoreLocation
+import AudioToolbox
 
 // Update the constants to be more specific and avoid naming conflicts
 private enum MapViewConstants {
@@ -108,11 +109,33 @@ struct MapView: View {
                             .shadow(radius: 8) // Reduced from 10
                             .frame(maxWidth: UIScreen.main.bounds.width * 0.75) // Constrain width to 75% of screen
                             .padding(.bottom, 60) // Reduced from 80
+                            // Position on the left side to avoid filter buttons on the right
+                            .offset(x: -UIScreen.main.bounds.width * 0.12)
 
                         Text("Tap anywhere to continue (\(currentOnboardingStep + 1)/\(onboardingInstructions.count))")
                              .font(.caption2)
                              .foregroundColor(.white.opacity(0.8))
-                             .padding(.bottom, 30) // Reduced from 40
+                             .padding(.bottom, 10) // Reduced from 30
+                             // Move counter to the left side as well
+                             .offset(x: -UIScreen.main.bounds.width * 0.12)
+                             
+                        // Add skip button
+                        Button(action: {
+                            // Play a vibration and finish onboarding
+                            AudioServicesPlaySystemSound(1519)
+                            hasCompletedOnboarding = true
+                        }) {
+                            Text("Skip All")
+                                .font(.footnote)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.gray.opacity(0.6))
+                                .cornerRadius(16)
+                        }
+                        .padding(.bottom, 30)
+                        .offset(x: -UIScreen.main.bounds.width * 0.12)
 
                         Spacer()
                     }

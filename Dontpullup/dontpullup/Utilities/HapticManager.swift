@@ -1,4 +1,5 @@
 import UIKit
+import AudioToolbox
 
 /// A utility class to provide haptic feedback throughout the app
 class HapticManager {
@@ -14,114 +15,74 @@ class HapticManager {
         case selection // Selection feedback
     }
     
-    /// Singleton instance for easy access
-    private static let shared = HapticManager()
+    // Using AudioServicesPlaySystemSound is a more reliable way to trigger haptics and sounds
+    private static let systemSoundID: UInt32 = 1519 // Default haptic feedback sound ID
+    private static let heavyFeedbackID: UInt32 = 1520
+    private static let mediumFeedbackID: UInt32 = 1521
+    private static let errorFeedbackID: UInt32 = 1107
+    private static let successFeedbackID: UInt32 = 1521
     
-    // Private impact generators (reused for efficiency)
-    private let lightImpactGenerator = UIImpactFeedbackGenerator(style: .light)
-    private let mediumImpactGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private let heavyImpactGenerator = UIImpactFeedbackGenerator(style: .heavy)
-    private let selectionGenerator = UISelectionFeedbackGenerator()
-    private let notificationGenerator = UINotificationFeedbackGenerator()
+    private static let selectFeedbackID: UInt32 = 1519
     
-    private init() {
-        // Pre-prepare the generators to reduce latency
-        lightImpactGenerator.prepare()
-        mediumImpactGenerator.prepare()
-        heavyImpactGenerator.prepare()
-        selectionGenerator.prepare()
-        notificationGenerator.prepare()
-        print("HapticManager initialized")
-    }
+    // Backup UIFeedbackGenerator instances for devices that support them
+    private static let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
     
     /// Trigger haptic feedback of the specified type
     /// - Parameter type: The type of haptic feedback to trigger
     static func feedback(_ type: FeedbackType) {
         print("HapticManager - Triggering feedback: \(type)")
         
-        // Create a local generator each time to ensure it works
-        // This is less efficient but more reliable
+        // Try direct system sound approach first - this should work on all devices
         switch type {
         case .light:
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.prepare()
-            generator.impactOccurred()
-            // Also trigger on shared instance as backup
-            shared.lightImpactGenerator.prepare()
-            shared.lightImpactGenerator.impactOccurred()
-            
+            AudioServicesPlaySystemSound(1519)
         case .medium:
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.prepare()
-            generator.impactOccurred()
-            // Also trigger on shared instance as backup
-            shared.mediumImpactGenerator.prepare()
-            shared.mediumImpactGenerator.impactOccurred()
-            
+            AudioServicesPlaySystemSound(1520)
         case .heavy:
-            let generator = UIImpactFeedbackGenerator(style: .heavy)
-            generator.prepare()
-            generator.impactOccurred()
-            // Also trigger on shared instance as backup
-            shared.heavyImpactGenerator.prepare()
-            shared.heavyImpactGenerator.impactOccurred()
-            
+            // For heavy feedback, play multiple sounds with vibration
+            AudioServicesPlaySystemSound(1521)
+            // Also try to trigger the device to vibrate
+            AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
         case .selection:
-            let generator = UISelectionFeedbackGenerator()
-            generator.prepare()
-            generator.selectionChanged()
-            // Also trigger on shared instance as backup
-            shared.selectionGenerator.prepare()
-            shared.selectionGenerator.selectionChanged()
-            
+            AudioServicesPlaySystemSound(1519)
         case .success:
-            let generator = UINotificationFeedbackGenerator()
-            generator.prepare()
-            generator.notificationOccurred(.success)
-            // Also trigger on shared instance as backup
-            shared.notificationGenerator.prepare()
-            shared.notificationGenerator.notificationOccurred(.success)
-            
+            AudioServicesPlaySystemSound(1521)
         case .warning:
-            let generator = UINotificationFeedbackGenerator()
-            generator.prepare()
-            generator.notificationOccurred(.warning)
-            // Also trigger on shared instance as backup
-            shared.notificationGenerator.prepare()
-            shared.notificationGenerator.notificationOccurred(.warning)
-            
+            AudioServicesPlaySystemSound(1107)
         case .error:
-            let generator = UINotificationFeedbackGenerator()
-            generator.prepare()
-            generator.notificationOccurred(.error)
-            // Also trigger on shared instance as backup
-            shared.notificationGenerator.prepare()
-            shared.notificationGenerator.notificationOccurred(.error)
+            // For error, use the vibrate alert
+            AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
         }
+        
+        // As a backup, also try the UIFeedbackGenerator
+        impactGenerator.prepare()
+        impactGenerator.impactOccurred(intensity: 1.0)
     }
     
-    /// Force feedback with intensity levels
-    /// Used when you need a stronger, more noticeable feedback
+    /// Force feedback with vibration
+    /// This uses the system vibrate function which should work on all iPhones
     static func forceFeedback() {
-        print("HapticManager - Force feedback triggered")
+        print("HapticManager - Force vibration triggered")
         
-        // Create a sequence of haptics for a stronger effect
-        let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
-        heavyGenerator.prepare()
-        heavyGenerator.impactOccurred(intensity: 1.0)
+        // This is a direct vibration command that should work on all phones
+        AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
         
-        // Delay slightly between impacts for maximum effect
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
-            mediumGenerator.prepare()
-            mediumGenerator.impactOccurred(intensity: 1.0)
+        // Try a second approach after a delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let generator = UIImpactFeedbackGenerator(style: .heavy)
+            generator.prepare()
+            generator.impactOccurred(intensity: 1.0)
+            
+            // Add a third approach for good measure
+            AudioServicesPlaySystemSound(1521)
         }
     }
     
     /// Convenience method for medium impact feedback (most common)
     static func impact() {
         print("HapticManager.impact() called")
-        feedback(.medium)
+        // Use direct vibration for more reliability
+        AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
     }
     
     /// Convenience method for success notification feedback
