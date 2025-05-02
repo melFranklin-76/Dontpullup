@@ -51,29 +51,31 @@ struct AuthView: View {
                     // Top section with spacing
                     Spacer()
                     
-                    // Middle section with tagline
-                    Text("Show us who they are\nso we can show them who we not")
+                    // Middle section with tagline - Changed text and color to red
+                    Text("VISIBILITY OVER VIOLENCE FOR COMMUNITY VALIDITY")
                         .font(.custom("BlackOpsOne-Regular", size: horizontalSizeClass == .regular ? 30 : 24))
-                        .foregroundColor(Color(red: 0, green: 0.8, blue: 1.0))
+                        .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.7), radius: 2)
                         .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 20)
                     
                     Spacer()
                     
-                    // Bottom section with buttons
+                    // Bottom section with buttons - changed colors and ensured consistent sizing
                     VStack(spacing: horizontalSizeClass == .regular ? 25 : 20) {
+                        // Sign In button - Changed to RED
                         Button(action: { authViewModel.isShowingSignIn = true }) {
                             Text("Sign In")
                                 .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
                                 .frame(height: horizontalSizeClass == .regular ? 60 : 50)
-                                .background(Color.blue)
+                                .background(Color.red)
                                 .cornerRadius(horizontalSizeClass == .regular ? 30 : 25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
                         
+                        // Create Account button - Changed to GREEN
                         Button(action: { authViewModel.isShowingSignUp = true }) {
                             Text("Create Account")
                                 .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
@@ -85,11 +87,12 @@ struct AuthView: View {
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
                         
+                        // Continue as Guest button - Changed to YELLOW
                         Button(action: signInAnonymously) {
                             ZStack {
                                 // Background
                                 RoundedRectangle(cornerRadius: horizontalSizeClass == .regular ? 30 : 25)
-                                    .fill(Color.purple)
+                                    .fill(Color.yellow)
                                     .opacity(isLoading ? 0.5 : 1.0)
                                     .frame(height: horizontalSizeClass == .regular ? 60 : 50)
                                     .shadow(color: .black.opacity(0.3), radius: 4)
@@ -100,8 +103,8 @@ struct AuthView: View {
                                         .scaleEffect(horizontalSizeClass == .regular ? 1.5 : 1.0)
                                 } else {
                                     Text("Continue as Guest")
-                                        .font(horizontalSizeClass == .regular ? .headline : .body.weight(.medium))
-                                        .foregroundColor(.white)
+                                        .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
+                                        .foregroundColor(.black) // Changed to black for better contrast on yellow
                                 }
                             }
                             .frame(minWidth: 0, maxWidth: .infinity)
@@ -188,7 +191,7 @@ struct SignInView: View {
                                 
                                 Spacer()
                                 
-                                // Bottom button - ensure it stays visible
+                                // Bottom button - updated to red
                                 Button(action: login) {
                                     ZStack {
                                         if isLoading {
@@ -204,7 +207,7 @@ struct SignInView: View {
                                     .frame(height: 50)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(.blue)
+                                .tint(.red)
                                 .cornerRadius(25)
                                 .padding(.horizontal, 24)
                                 .padding(.bottom, 40)
@@ -305,7 +308,7 @@ struct SignUpView: View {
                                 
                                 Spacer()
                                 
-                                // Bottom button - ensure it stays visible
+                                // Bottom button - kept as green
                                 Button(action: signUp) {
                                     ZStack {
                                         if isLoading {

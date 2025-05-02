@@ -18,13 +18,6 @@ struct HelpView: View {
 
                 // Use List for better structure and scrolling
                 List {
-                    // Section for How to Use Instructions
-                    Section {
-                        NavigationLink("How to Use the App") {
-                            AppInstructionsView()
-                        }
-                    }
-
                     // Section for Community Guidelines
                     Section(header: Text("Community Guidelines").foregroundColor(.white)) {
                         VStack(alignment: .leading, spacing: 8) {

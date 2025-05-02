@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 
 struct SettingsView: View {
     @EnvironmentObject private var authState: AuthState
@@ -31,8 +32,34 @@ struct SettingsView: View {
                             .toggleStyle(SwitchToggleStyle(tint: .red))
                             .disabled(true)
                         
-                        Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
-                            .toggleStyle(SwitchToggleStyle(tint: .red))
+                        // Haptic feedback toggle with immediate effect
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
+                                .toggleStyle(SwitchToggleStyle(tint: .red))
+                                .onChange(of: hapticFeedbackEnabled) { newValue in
+                                    print("Settings: Toggling haptic feedback to \(newValue)")
+                                    HapticManager.setEnabled(newValue)
+                                    
+                                    // If enabling, provide feedback to confirm it works
+                                    if newValue {
+                                        // Small delay to ensure the setting is applied
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            HapticManager.feedback(.medium)
+                                        }
+                                    }
+                                }
+                            
+                            // Test button for haptic feedback
+                            Button(action: {
+                                print("Settings: Testing haptic feedback")
+                                HapticManager.feedback(.medium)
+                            }) {
+                                Text("Test Haptic Feedback")
+                                    .font(.footnote)
+                                    .foregroundColor(.red)
+                            }
+                            .padding(.top, 2)
+                        }
                     }
                     
                     Section(header: Text("App Info").foregroundColor(.white)) {
@@ -111,6 +138,19 @@ struct SettingsView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .listStyle(InsetGroupedListStyle())
+                // Full-screen progress overlay while an account-deletion is in flight
+                if isProcessingDeletion {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView("Deleting your account…")
+                            .progressViewStyle(CircularProgressViewStyle(tint: .red))
+                            .foregroundColor(.white)
+                        Text("This may take a moment.")
+                            .font(.footnote)
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                }
             }
             .background(Color.black.edgesIgnoringSafeArea(.all))
             .navigationTitle("Settings")
@@ -146,12 +186,20 @@ struct SettingsView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .onAppear {
+            // Load current haptic feedback setting
+            print("Settings: Loading haptic feedback setting from UserDefaults")
+            hapticFeedbackEnabled = HapticManager.isEnabled
+            print("Settings: Loaded hapticFeedbackEnabled = \(hapticFeedbackEnabled)")
+        }
     }
     
     private func resetSettings() {
         notificationsEnabled = true
         locationTrackingEnabled = true
         hapticFeedbackEnabled = true
+        // Update haptic feedback setting
+        HapticManager.setEnabled(true)
         print("Settings reset to defaults.")
     }
     
@@ -169,30 +217,84 @@ struct SettingsView: View {
         
         isProcessingDeletion = true
         
-        // 1. Delete all user data from Firestore
-        deleteUserData(userId: user.uid) { firestoreError in
-            if let error = firestoreError {
-                // Handle Firestore deletion error
+        // Step 1 – purge all user-owned videos from Firebase Storage
+        deleteUserVideos(userId: user.uid) { storageError in
+            if let error = storageError {
                 handleDeletionError(error.localizedDescription)
                 return
             }
             
-            // 2. Delete user authentication account
-            user.delete { authError in
-                if let error = authError {
-                    // Handle authentication deletion error
+            // Step 2 – remove Firestore documents (pins, reports, etc.)
+            deleteUserData(userId: user.uid) { firestoreError in
+                if let error = firestoreError {
                     handleDeletionError(error.localizedDescription)
                     return
                 }
                 
-                // Success - account fully deleted
-                Task { @MainActor in
-                    isProcessingDeletion = false
-                    // Sign out and dismiss settings view
-                    try? Auth.auth().signOut()
-                    authState.isAuthenticated = false
-                    presentationMode.wrappedValue.dismiss()
+                // Step 3 – delete the Firebase Auth account itself
+                user.delete { authError in
+                    if let error = authError {
+                        handleDeletionError(error.localizedDescription)
+                        return
+                    }
+                    
+                    // ✅ Success – sign out & close settings
+                    Task { @MainActor in
+                        isProcessingDeletion = false
+                        try? Auth.auth().signOut()
+                        authState.isAuthenticated = false
+                        presentationMode.wrappedValue.dismiss()
+                    }
                 }
+            }
+        }
+    }
+    
+    /// Deletes all videos associated with the user's pins from Firebase Storage.
+    /// - Parameter completion: Called on the **main thread** once all deletes finish (or on first error).
+    private func deleteUserVideos(userId: String, completion: @escaping (Error?) -> Void) {
+        let db = Firestore.firestore()
+        
+        // 1. Fetch the user's pins to extract their `videoURL`s
+        db.collection("pins").whereField("userID", isEqualTo: userId).getDocuments { snapshot, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            
+            let urls: [String] = snapshot?.documents.compactMap { $0.data()["videoURL"] as? String } ?? []
+            
+            guard !urls.isEmpty else {
+                // Nothing to delete
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            
+            // 2. Create storage-references
+            let refs = urls.map { Storage.storage().reference(forURL: $0) }
+            
+            // Concurrency limiter – at most 5 simultaneous deletions
+            let semaphore = DispatchSemaphore(value: 5)
+            let group = DispatchGroup()
+            // Capture first error (if any)
+            var firstError: Error?
+            
+            for ref in refs {
+                group.enter()
+                DispatchQueue.global(qos: .utility).async {
+                    semaphore.wait()
+                    ref.delete { error in
+                        if let error = error, firstError == nil {
+                            firstError = error
+                        }
+                        semaphore.signal()
+                        group.leave()
+                    }
+                }
+            }
+            
+            group.notify(queue: .main) {
+                completion(firstError)
             }
         }
     }
@@ -247,31 +349,81 @@ struct AboutView: View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("About Don't Pull Up")
+                    Text("DON'T PULL UP, ON GRANDMA! – COMMUNITY GUIDELINES")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
-                    Text("Don't Pull Up is a community-driven safety app designed to help users identify and avoid potentially unsafe areas. The app allows users to mark locations where incidents have occurred, helping others stay informed.")
+                    Text("This platform is built on truth, visibility, and accountability. These rules help keep that mission alive:")
                         .font(.body)
                         .foregroundColor(.white)
+                        .padding(.bottom, 8)
                     
-                    Text("Our Mission")
-                        .font(.title3.bold())
+                    Group {
+                        Text("1. BE TRUTHFUL")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• Only upload real interactions you personally recorded in public spaces.\n• Do not stage, script, or fake scenarios.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("2. RESPECT PRIVACY")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• Never film in private areas or share private details like names, home addresses, or license plates without blurring.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("3. NO HATE OR HARASSMENT")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• No racist, sexist, or threatening language or behavior — in videos or captions.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    Group {
+                        Text("4. REPORTING CONTENT")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• Use the flag button if you believe a video is fake, misleading, or harmful.\n• Leave your email if you want a follow-up. We investigate every report.\n• All reported content is reviewed manually. Content that violates these guidelines may be removed at our discretion.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("5. STAY ACCOUNTABLE")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• Violating these guidelines may result in content removal or account suspension.\n• Repeated abuse can lead to permanent bans.\n• Users may contact us to appeal any moderation decisions.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("6. USE RESPONSIBLY")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• This app is for exposing real-world mistreatment, not for retaliation, shaming, or personal attacks.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    Text("We're here to shine a light — not start a fire. Let's keep it real, respectful, and righteous.")
+                        .font(.body.italic())
                         .foregroundColor(.white)
-                        .padding(.top, 8)
+                        .padding(.bottom, 8)
                     
-                    Text("Create a safer community through shared awareness and information. By reporting incidents, you're helping others stay safe.")
-                        .font(.body)
-                        .foregroundColor(.white)
-                    
-                    Text("Privacy")
-                        .font(.title3.bold())
-                        .foregroundColor(.white)
-                        .padding(.top, 8)
-                    
-                    Text("The app is built with privacy in mind. All reports are anonymous by default, and we do not track your location unless you explicitly grant permission.")
+                    Text("Contact us at: contact@dontpullup.com")
                         .font(.body)
                         .foregroundColor(.white)
                     
@@ -292,39 +444,83 @@ struct PrivacyPolicyView: View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Privacy Policy")
+                    Text("DON'T PULL UP, ON GRANDMA! – PRIVACY POLICY")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
+                    Text("Effective Date: 5/1/25")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(.bottom, 8)
+                    
+                    Text("Your privacy is important to us. This Privacy Policy explains how we collect, use, and protect your information.")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(.bottom, 8)
+                    
                     Group {
-                        Text("Data Collection")
+                        Text("1. INFORMATION WE COLLECT")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("We collect limited data necessary for app functionality: account information, location data (only when you use the app), and content you choose to share.")
+                        Text("• Account info (e.g., email, username) for registered users\n• Location data (only while using the app, and only for pin-drop purposes)\n• Metadata from uploaded videos (to verify authenticity)")
                             .font(.body)
                             .foregroundColor(.white)
                             .padding(.bottom, 8)
                         
-                        Text("Your Privacy Choices")
+                        Text("2. HOW WE USE YOUR DATA")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("You can limit location data collection through settings. You can request deletion of your account and associated data by contacting support.")
+                        Text("• To allow users to upload videos and drop pins nearby\n• To verify and moderate content\n• To communicate with users if a video is flagged or reported")
                             .font(.body)
                             .foregroundColor(.white)
                             .padding(.bottom, 8)
                         
-                        Text("Data Usage")
+                        Text("3. WHO SEES YOUR DATA")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("Your data helps improve app functionality and provide location-based safety information. We do not sell your personal information to third parties.")
+                        Text("• Anonymous users can view content, but only registered users can post\n• We do not sell or share your data with third parties")
                             .font(.body)
                             .foregroundColor(.white)
+                            .padding(.bottom, 8)
                     }
+                    
+                    Group {
+                        Text("4. USER CONTROLS")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• You can delete your account at any time by contacting us\n• Location use is only active while using the pin-drop feature and not stored afterward")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("5. DATA SECURITY")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("We use secure encryption and access control practices to protect your information.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("6. CHILDREN'S PRIVACY")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("We do not knowingly allow children under 13 to use the app. If we become aware, we will remove the account.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    Text("Contact us at: contact@dontpullup.com")
+                        .font(.body)
+                        .foregroundColor(.white)
                     
                     Spacer()
                 }
@@ -343,36 +539,90 @@ struct TermsOfServiceView: View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Terms of Service")
+                    Text("DON'T PULL UP, ON GRANDMA! – TERMS OF SERVICE")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
+                    Text("Effective Date: 5/1/25")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(.bottom, 8)
+                    
+                    Text("Welcome to Don't Pull Up, on Grandma! ("the App"), a platform operated by RESCH & RALSTON R.I.P. TRUST. These Terms of Service govern your use of our App and services.")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(.bottom, 8)
+                    
                     Group {
-                        Text("User Responsibilities")
+                        Text("1. WHO MAY USE THE APP")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("By using this app, you agree to only upload accurate and legally compliant content. You are responsible for all content you share through the app.")
+                        Text("Only registered users may upload videos. By registering, you confirm that:")
+                            .font(.body)
+                            .foregroundColor(.white)
+                        
+                        Text("• You are at least 13 years old.\n• You will only record and upload video of your own interactions in public spaces.\n• You agree to abide by these Terms and our Community Guidelines.")
                             .font(.body)
                             .foregroundColor(.white)
                             .padding(.bottom, 8)
                         
-                        Text("Content Guidelines")
+                        Text("2. CONTENT OWNERSHIP AND RESPONSIBILITY")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("Do not upload false, misleading, illegal, or harmful content. We reserve the right to remove content that violates these terms without notice.")
+                        Text("• You retain ownership of your uploaded content but grant us a license to display, distribute, and host it within the app.\n• You are solely responsible for the content you upload.\n• Videos must not include private information (e.g., full names, addresses) or be filmed in private areas (e.g., restrooms, staff-only areas).")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    Group {
+                        Text("3. LOCATION RESTRICTION")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("Pin drops are only allowed within 200 feet of your device's location. Any attempt to spoof or falsify this data may result in account removal.")
                             .font(.body)
                             .foregroundColor(.white)
                             .padding(.bottom, 8)
                         
-                        Text("Service Modifications")
+                        Text("4. NO ILLEGAL OR MANIPULATED CONTENT")
                             .font(.title3.bold())
                             .foregroundColor(.yellow)
                         
-                        Text("We may modify or discontinue services at any time. We are not liable for any modification, suspension, or discontinuation of the service.")
+                        Text("• You may not upload videos that are edited to mislead or misrepresent the truth.\n• Our system checks metadata to detect manipulated content.\n• Uploading falsified or defamatory videos may result in permanent suspension and legal consequences.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    Group {
+                        Text("5. REPORTING AND DISPUTES")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("• Every video includes a flag option.\n• Users can report objectionable or potentially false content by submitting their email.\n• We review all flagged content and may contact the reporting party for more information.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("6. ACCOUNT TERMINATION")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("We reserve the right to suspend or remove any account that violates these terms, posts harmful content, or misuses the platform.")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .padding(.bottom, 8)
+                        
+                        Text("7. MODIFICATION")
+                            .font(.title3.bold())
+                            .foregroundColor(.yellow)
+                        
+                        Text("We may update these Terms from time to time. Continued use of the App means you agree to the latest version.")
                             .font(.body)
                             .foregroundColor(.white)
                     }
