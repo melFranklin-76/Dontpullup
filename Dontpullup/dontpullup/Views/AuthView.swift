@@ -27,7 +27,6 @@ struct AuthView: View {
     @StateObject private var authViewModel = AuthViewModel()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var networkMonitor: NetworkMonitor
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isLoading = false
@@ -53,37 +52,37 @@ struct AuthView: View {
                     
                     // Middle section with tagline - Changed text and color to red
                     Text("VISIBILITY OVER VIOLENCE FOR COMMUNITY VALIDITY")
-                        .font(.custom("BlackOpsOne-Regular", size: horizontalSizeClass == .regular ? 30 : 24))
+                        .font(.custom("BlackOpsOne-Regular", size: 24))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.7), radius: 2)
-                        .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 20)
+                        .padding(.horizontal, 20)
                     
                     Spacer()
                     
                     // Bottom section with buttons - changed colors and ensured consistent sizing
-                    VStack(spacing: horizontalSizeClass == .regular ? 25 : 20) {
+                    VStack(spacing: 20) {
                         // Sign In button - Changed to RED
                         Button(action: { authViewModel.isShowingSignIn = true }) {
                             Text("Sign In")
-                                .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
+                                .font(.headline.weight(.bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: horizontalSizeClass == .regular ? 60 : 50)
+                                .frame(height: 50)
                                 .background(Color.red)
-                                .cornerRadius(horizontalSizeClass == .regular ? 30 : 25)
+                                .cornerRadius(25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
                         
                         // Create Account button - Changed to GREEN
                         Button(action: { authViewModel.isShowingSignUp = true }) {
                             Text("Create Account")
-                                .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
+                                .font(.headline.weight(.bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: horizontalSizeClass == .regular ? 60 : 50)
+                                .frame(height: 50)
                                 .background(Color.green)
-                                .cornerRadius(horizontalSizeClass == .regular ? 30 : 25)
+                                .cornerRadius(25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
                         }
                         
@@ -91,19 +90,19 @@ struct AuthView: View {
                         Button(action: signInAnonymously) {
                             ZStack {
                                 // Background
-                                RoundedRectangle(cornerRadius: horizontalSizeClass == .regular ? 30 : 25)
+                                RoundedRectangle(cornerRadius: 25)
                                     .fill(Color.yellow)
                                     .opacity(isLoading ? 0.5 : 1.0)
-                                    .frame(height: horizontalSizeClass == .regular ? 60 : 50)
+                                    .frame(height: 50)
                                     .shadow(color: .black.opacity(0.3), radius: 4)
 
                                 if isLoading {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(horizontalSizeClass == .regular ? 1.5 : 1.0)
+                                        .scaleEffect(1.0)
                                 } else {
                                     Text("Continue as Guest")
-                                        .font(horizontalSizeClass == .regular ? .title3.weight(.bold) : .headline.weight(.bold))
+                                        .font(.headline.weight(.bold))
                                         .foregroundColor(.black) // Changed to black for better contrast on yellow
                                 }
                             }
@@ -111,8 +110,8 @@ struct AuthView: View {
                         }
                         .disabled(isLoading)
                     }
-                    .padding(.horizontal, horizontalSizeClass == .regular ? 80 : 24)
-                    .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + (horizontalSizeClass == .regular ? 30 : 20)))
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + 20))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

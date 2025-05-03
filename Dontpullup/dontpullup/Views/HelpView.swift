@@ -1,151 +1,55 @@
 import SwiftUI
 
 struct HelpView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.presentationMode) var presentationMode
+
+    // Structure to hold help topics
+    struct HelpTopic: Identifiable {
+        let id = UUID()
+        let title: String
+        let systemImage: String
+        let description: String
+    }
+
+    // Array of help topics
+    let helpTopics = [
+        HelpTopic(title: "Dropping a Pin", systemImage: "mappin.and.ellipse", description: "To drop a pin, press and hold on the map at the desired location (within 200ft of your current location). You must be logged in."),
+        HelpTopic(title: "Viewing Videos", systemImage: "play.rectangle.fill", description: "Tap on any pin on the map to view the video associated with that location."),
+        HelpTopic(title: "Filtering Incidents", systemImage: "line.horizontal.3.decrease.circle.fill", description: "Use the filter buttons on the right side of the map to show only specific types of incidents."),
+        HelpTopic(title: "Deleting Your Pin", systemImage: "trash.fill", description: "Enter Edit Mode (pencil icon at the bottom). Your pins will turn red. Tap a red pin to delete it. You can only delete your own pins."),
+        HelpTopic(title: "Reporting Content", systemImage: "flag.fill", description: "While viewing a video, tap the 'Report' button (flag icon) to report inappropriate or misleading content."),
+        HelpTopic(title: "Location Permission", systemImage: "location.fill", description: "The app needs location access to show nearby pins and allow dropping pins. You can manage permissions in Settings."),
+        HelpTopic(title: "Account Management", systemImage: "person.crop.circle.fill", description: "Tap the profile icon at the bottom to view your profile, sign out, or delete your account.")
+    ]
 
     var body: some View {
         NavigationView {
-            ZStack {
-                // Background Image (Keep or remove based on design preference)
-                // Image("welcome_background") // REMOVED
-                //     .resizable()
-                //     .aspectRatio(contentMode: .fill)
-                //     .edgesIgnoringSafeArea(.all)
-
-                // Optional Overlay (Add if needed for text contrast)
-                // Color.black.opacity(0.6).edgesIgnoringSafeArea(.all)
-
-                // Use List for better structure and scrolling
-                List {
-                    // Section for Community Guidelines
-                    Section(header: Text("Community Guidelines").foregroundColor(.white)) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Our mission is to foster transparency by documenting real experiences.")
-                                .font(.subheadline)
-                                .foregroundColor(.white)
-                                .padding(.bottom, 4)
-
-                            // Rules section
-                            Group {
-                                HStack {
-                                    Text("1.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("Film in public spaces only")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-
-                                HStack {
-                                    Text("2.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("Share authentic, unedited experiences")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-
-                                HStack {
-                                    Text("3.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("Respect legal boundaries and privacy")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-
-                                HStack {
-                                    Text("4.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("No hate speech, nudity or harassment")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-
-                                HStack {
-                                    Text("5.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("Promote safety and respect for all")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-
-                                HStack {
-                                    Text("6.")
-                                        .foregroundColor(.yellow)
-                                        .fontWeight(.bold)
-                                    Text("Violations may result in content removal")
-                                        .foregroundColor(.white)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.footnote)
-                            }
-                        }
+            List {
+                ForEach(helpTopics) { topic in
+                    Section(header: Label(topic.title, systemImage: topic.systemImage)) {
+                        Text(topic.description)
+                            .font(.body)
+                            .padding(.vertical, 5)
                     }
-
-                    // Section for Reporting
-                    Section(header: Text("Reporting & Moderation").foregroundColor(.white)) {
-                        VStack(alignment: .leading, spacing: 8) {
-                             Group {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Text("•")
-                                        .foregroundColor(.yellow)
-                                    Text("Use the 'Report' button to flag violations")
-                                        .foregroundColor(.white)
-                                }
-                                .font(.caption)
-
-                                HStack(alignment: .top, spacing: 10) {
-                                    Text("•")
-                                        .foregroundColor(.yellow)
-                                    Text("Our team reviews reports within 24 hours")
-                                        .foregroundColor(.white)
-                                }
-                                .font(.caption)
-
-                                HStack(alignment: .top, spacing: 10) {
-                                    Text("•")
-                                        .foregroundColor(.yellow)
-                                    Text("Violating content will be removed")
-                                        .foregroundColor(.white)
-                                }
-                                .font(.caption)
-                            }
-                        }
-                    }
-
-                    // Section for Contact
-                    Section(header: Text("Contact Us").foregroundColor(.white)) {
-                        Text("Email: support@dontpullupongrandma.com")
-                            .font(.caption)
-                            .foregroundColor(.white)
-                    }
-
                 }
-                // Apply List styles consistent with SettingsView
-                .listStyle(InsetGroupedListStyle())
-                .scrollContentBackground(.hidden) // Make List background clear
             }
-            // Apply solid black background instead of image
-            .background(Color.black.edgesIgnoringSafeArea(.all))
-            .navigationBarTitle("Help & Guidelines", displayMode: .inline)
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
+            .listStyle(InsetGroupedListStyle())
+            .navigationTitle("Help & FAQ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
         }
-        .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.dark) // Maintain dark mode consistency
     }
 }
 
-#Preview {
-    HelpView()
+struct HelpView_Previews: PreviewProvider {
+    static var previews: some View {
+        HelpView()
+    }
 } 

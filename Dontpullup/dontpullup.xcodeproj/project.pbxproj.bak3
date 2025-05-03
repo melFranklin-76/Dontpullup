@@ -322,7 +322,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"dontpullup/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				"INFOPLIST_FILE[sdk=*]" = "$(SRCROOT)/Resources/Info.plist";
+				"INFOPLIST_FILE[sdk=*]" = "$(SRCROOT)/Dontpullup/Resources/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Don't Pull Up!";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is needed to record incident videos. You are solely responsible for any content you record and share. By recording content, you confirm you have the right to record and accept responsibility for its contents.";
@@ -348,11 +348,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XCCONFIG_FILE = "$(SRCROOT)/Dontpullup/dontpullup.xcconfig";
 			};
 			name = Debug;
@@ -369,7 +368,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"dontpullup/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "$(SRCROOT)/Resources/Info.plist";
+				INFOPLIST_FILE = "$(SRCROOT)/Dontpullup/Resources/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Don't Pull Up!";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is needed to record incident videos. You are solely responsible for any content you record and share. By recording content, you confirm you have the right to record and accept responsibility for its contents.";
@@ -395,11 +394,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XCCONFIG_FILE = "$(SRCROOT)/Dontpullup/dontpullup.xcconfig";
 			};
 			name = Release;

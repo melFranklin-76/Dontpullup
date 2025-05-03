@@ -448,7 +448,9 @@ class MapViewModel: NSObject, ObservableObject {
         // Request location permissions
         switch locationManager.authorizationStatus {
         case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
+            // Do NOT request permission here.  The view will explicitly request once the first
+            // window is on-screen so the system alert can actually be displayed.
+            break
         case .authorizedWhenInUse, .authorizedAlways:
             locationManager.startUpdatingLocation()
         case .denied, .restricted:
@@ -485,10 +487,11 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     func centerOnUserLocation() {
-        // Use the instance property instead of the deprecated static method
         switch locationManager.authorizationStatus {
         case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
+            // We have already triggered the permission request elsewhere; do not
+            // spam the system with a second call (it prints the UI-unresponsive
+            // warning you saw in the log).
             return
         
         case .restricted, .denied:
@@ -1708,6 +1711,32 @@ class MapViewModel: NSObject, ObservableObject {
         zoomOutSubject.send()
     }
 
+    // MARK: - Location Permission Helper
+    /// Request location permission if it hasn't been asked yet. The small delay guarantees the first window is already key, so the system alert is reliably shown.
+    @MainActor
+    func requestLocationPermissionIfNeeded() {
+        // 1️⃣ Bail out early if the user has globally disabled Location Services. In that
+        //    scenario iOS will *not* display the permission alert at all, leaving the
+        //    app waiting indefinitely (-> "has not received auth status ..." spam).
+        guard CLLocationManager.locationServicesEnabled() else {
+            // Surface a single, user-visible warning. Using showError ensures we
+            // respect the existing alert funnel in MapViewModel.
+            showError("Location Services are turned off system-wide. Please enable them in Settings → Privacy & Security → Location Services and relaunch the app.")
+            return
+        }
+
+        // 2️⃣ Only ask if this is still undecided to avoid a second prompt.
+        guard locationManager.authorizationStatus == .notDetermined else { return }
+        // Short delay to avoid asking before the key window exists (simulator quirk)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            locationLogger.debug("requestWhenInUseAuthorization() – presenting system alert")
+            // Calling on the main actor is required for CLLocationManager; the
+            // diagnostic about potential UI blocking is only advisory and does
+            // not apply to a one-shot permission prompt.
+            self?.locationManager.requestWhenInUseAuthorization()
+        }
+    }
+
 }
 
 // MARK: - Location Manager Delegate
@@ -1720,6 +1749,9 @@ extension MapViewModel: CLLocationManagerDelegate {
                 if !hasSetInitialRegion {
                     centerOnUserLocation() // Remove await since centerOnUserLocation is not async
                 }
+            case .denied, .restricted:
+                // 📣 Inform the user once – don't spam on every status callback.
+                self.showError("Location access is denied. You can allow it in Settings → Privacy & Security → Location Services → Don't Pull Up.")
             default:
                 break
             }

@@ -1,439 +1,423 @@
 import SwiftUI
-import UIKit
 import MapKit
-import AVKit
-import Combine
+import CoreLocationUI // For LocationButton
 
 struct MainTabView: View {
-    @EnvironmentObject private var authState: AuthState
-    @EnvironmentObject private var networkMonitor: NetworkMonitor
     @StateObject private var mapViewModel = MapViewModel()
-    
-    var body: some View {
-        // Directly use the fixed MapView
-        MapView()
-            .environmentObject(mapViewModel)
-            .environmentObject(authState)
-            .environmentObject(networkMonitor)
-            .preferredColorScheme(.dark)
-    }
-}
+    @EnvironmentObject var authState: AuthState
+    @Environment(\.colorScheme) var colorScheme
+//    @Environment(\.horizontalSizeClass) private var horizontalSizeClass // REMOVED
 
-struct MapContentView: View {
-    @EnvironmentObject private var mapViewModel: MapViewModel
-    @EnvironmentObject private var networkMonitor: NetworkMonitor
-    @EnvironmentObject private var authState: AuthState
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    // State for managing sheets
     @State private var showingSettings = false
     @State private var showingProfile = false
-    @State private var showingTermsOfService = false
-    @State private var showingPrivacyPolicy = false
-    private let hapticImpact = UIImpactFeedbackGenerator(style: .medium)
-    
-    // State for marquee animation
-    @State private var marqueeOffset: CGFloat = 0
-    @State private var shouldAnimateMarquee = false
-    // Define phrases and pause spacing for marquee
-    private let phrase1 = "SHOW  US   WHO  THEY   ARE"
-    private let phrase2 = " WE  WILL  SHOW  THEM  WHO  WE  ARE  NOT"
-    private let pauseSpacing = String(repeating: " ", count: 20)
-    private var marqueeText: String { phrase1 + pauseSpacing + phrase2 + pauseSpacing }
-    
-    // State used to measure text width for smooth looping
-    @State private var textContentWidth: CGFloat = 0
-    
-    // Create publishers for the notification events
-    private let termsOfServicePublisher = NotificationCenter.default.publisher(for: Notification.Name("OpenTermsOfService"))
-    private let privacyPolicyPublisher = NotificationCenter.default.publisher(for: Notification.Name("OpenPrivacyPolicy"))
+    @State private var showingHelp = false
+
+    // Video Player State (moved from MapView)
+    @State private var showVideoPlayer = false
+    @State private var videoPlayer: AVPlayer? = nil
+    @State private var videoURLToPlay: URL? = nil
+    @State private var isLoadingVideo = false
+
+    // Incident Type Picker State (moved from MapView)
+    @State private var showingIncidentPicker = false
+    @State private var newPinCoordinate: CLLocationCoordinate2D?
+
+    // Onboarding State
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var currentOnboardingStep = 0
+    private let onboardingInstructions = [
+        "Welcome to DontPullUp! Tap and hold on the map to drop a pin.",
+        "Choose an incident type from the picker.",
+        "Your pin appears on the map. Tap pins to view videos.",
+        "Use the filters on the right to show specific incidents.",
+        "Use the bottom buttons for Profile, Settings, etc.",
+        "Upload progress shows in the center of screen. Pins update automatically."
+    ]
+
+    // Location Alert State
+    @State private var showLocationDisabledAlert = false
     
     var body: some View {
+        NavigationView { // Wrap content in NavigationView
         GeometryReader { geometry in
-            ZStack {
-                // Wrap MapView in ZStack
-                ZStack {
-                    MapView()
-                        .edgesIgnoringSafeArea(.all)
-                        .preferredColorScheme(.dark)
-                        .onAppear {
-                            mapViewModel.centerOnUserLocation()
-                        }
-                    
-                    // Add Zoom Buttons Overlay
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 10) {
-                                // Use adaptive spacing based on size class
-                                let zoomButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 15 : 10
-                                let zoomButtonSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
-                                VStack(spacing: zoomButtonSpacing) { // Adaptive spacing
-                                    Button(action: { mapViewModel.zoomIn() }) {
-                                        Image(systemName: "plus.magnifyingglass")
-                                            .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Slightly larger icon on iPad
-                                            .foregroundColor(.white)
-                                            .frame(width: zoomButtonSize, height: zoomButtonSize) // Adaptive size
-                                            .background(Color.black.opacity(0.6))
-                                            .clipShape(Circle())
-                                    }
-                                    Button(action: { mapViewModel.zoomOut() }) {
-                                        Image(systemName: "minus.magnifyingglass")
-                                            .font(.system(size: horizontalSizeClass == .regular ? 24 : 20)) // Slightly larger icon on iPad
-                                            .foregroundColor(.white)
-                                            .frame(width: zoomButtonSize, height: zoomButtonSize) // Adaptive size
-                                            .background(Color.black.opacity(0.6))
-                                            .clipShape(Circle())
-                                    }
-                                }
-                                .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16) // Adaptive padding
-                            }
-                            .padding(.trailing, 16)
-                            // Align with filter buttons slightly
-                            .padding(.bottom, geometry.safeAreaInsets.bottom + 60) // Adjust vertical position relative to bottom controls
-                        }
-                    }
-                }
-                
-                VStack(spacing: 0) {
-                    // Top Banner Area - Reduced overall top padding
-                    ZStack {
-                        // Background "DON'T PULL UP" text
-                        Text("DON'T PULL UP")
-                            // Use adaptive font style based on size class
-                            .font(horizontalSizeClass == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
-                            .foregroundColor(.yellow)
-                            .tracking(2.0)
-                            .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, geometry.size.width * 0.1) // Keep horizontal padding geometry-based for now
+                ZStack(alignment: .topLeading) {
+                    // Map Layer
+                    mapLayer(geometry: geometry)
 
-                        // Marquee sits visually above "ON GRANDMA!" within the ZStack
-                        // Use alignmentGuide or offset for precise vertical centering if needed
-                        GeometryReader { geo in
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 0) {
-                                    Text(marqueeText)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundColor(.black)
-                                        .tracking(1.5)
-                                        .fixedSize()
-                                        .background(GeometryReader { tGeo in
-                                            Color.clear.onAppear {
-                                                textContentWidth = tGeo.size.width
-                                            }
-                                        })
-                                    Text(marqueeText)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundColor(.black)
-                                        .tracking(1.5)
-                                        .fixedSize()
-                                }
-                                .offset(x: marqueeOffset)
-                                .onAppear {
-                                    // Ensure we have measured width
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        let width = textContentWidth
-                                        guard width > 0 else { return }
-                                        let duration = Double(width) / 40.0 // speed factor
-                                        marqueeOffset = 0
-                                        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
-                                            marqueeOffset = -width
+                    // UI Overlays Layer
+                    uiOverlays(geometry: geometry)
+
+                    // Onboarding Layer
+                    onboardingLayer(geometry: geometry)
+
+                    // Loading/Progress Layer
+                    loadingLayer(geometry: geometry)
+                }
+                .navigationBarHidden(true) // Hide the default navigation bar
+            }
+            .ignoresSafeArea(.keyboard) // Prevent keyboard from pushing UI up excessively
+        }
+        .navigationViewStyle(.stack) // Use stack style for consistency
+        .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(authState) }
+        .sheet(isPresented: $showingProfile) { ProfileView().environmentObject(authState).environmentObject(AuthViewModel()) }
+        .sheet(isPresented: $showingHelp) { HelpView() }
+        .sheet(isPresented: $showVideoPlayer, onDismiss: stopVideo) { videoPlayerSheetContent() }
+        .sheet(isPresented: $showingIncidentPicker) { incidentPickerSheetContent() }
+        .alert("Location Disabled", isPresented: $showLocationDisabledAlert) { locationDisabledAlertButtons() } message: { locationDisabledAlertMessage() }
+        .alert("Error", isPresented: $mapViewModel.showErrorAlert, error: mapViewModel.activeError) { errorAlertButtons() }
+        .alert("Authentication Required", isPresented: $mapViewModel.showAuthenticationRequiredAlert) { authRequiredAlertButtons() } message: { authRequiredAlertMessage() }
+        .alert("Too Far", isPresented: $mapViewModel.showDistanceAlert) { distanceAlertButtons() } message: { distanceAlertMessage() }
+        .onChange(of: mapViewModel.locationManager.authorizationStatus, perform: handleAuthStatusChange)
+        .onAppear(perform: handleOnAppear)
+    }
+
+    // MARK: - Layer Subviews
+
+    @ViewBuilder
+    private func mapLayer(geometry: GeometryProxy) -> some View {
+        Map(coordinateRegion: $mapViewModel.region, showsUserLocation: true, annotationItems: mapViewModel.filteredPins) { pin in
+            MapAnnotation(coordinate: pin.coordinate) {
+                PinAnnotationView(pin: pin, viewModel: mapViewModel) {
+                    Task { await playVideo(for: pin) }
+                }
+            }
+        }
+        .edgesIgnoringSafeArea(.top)
+        .accentColor(Color(.systemPink))
+        .onLongPressGesture(minimumDuration: 0.5) { screenCoordinate in
+            handleLongPress(screenCoordinate: screenCoordinate, geometry: geometry)
+        }
+    }
+
+    @ViewBuilder
+    private func uiOverlays(geometry: GeometryProxy) -> some View {
+        VStack {
+            // Top Controls (Title/Logo + Filters)
+            topControls(geometry: geometry)
+
+            Spacer() // Pushes bottom controls down
+
+            // Right Side Controls (Zoom + Location)
+            rightSideControls(geometry: geometry)
+
+            // Bottom Controls (Tabs/Buttons)
+            bottomControls(geometry: geometry)
                                         }
                                     }
-                                }
+
+    @ViewBuilder
+    private func onboardingLayer(geometry: GeometryProxy) -> some View {
+        if !hasCompletedOnboarding && currentOnboardingStep < onboardingInstructions.count {
+            Color.black.opacity(0.6)
+                .edgesIgnoringSafeArea(.all)
+                .onTapGesture { advanceOnboarding() }
+
+            VStack {
+                Spacer()
+                Text(onboardingInstructions[currentOnboardingStep])
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(12)
+                    .shadow(radius: 5)
+                    .frame(maxWidth: geometry.size.width * 0.8)
+                    .padding(.bottom, 80) // Position above bottom controls
+
+                Text("Tap anywhere to continue (\(currentOnboardingStep + 1)/\(onboardingInstructions.count))")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.bottom, 10)
+
+                Button("Skip All") { skipOnboarding() }
+                    .font(.footnote)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.gray.opacity(0.6))
+                    .cornerRadius(10)
+                    .padding(.bottom, 40)
+
+                Spacer()
+                        }
+            .transition(.opacity.animation(.easeInOut))
+        }
+    }
+
+    @ViewBuilder
+    private func loadingLayer(geometry: GeometryProxy) -> some View {
+        // Loading Indicator for Video
+        if isLoadingVideo {
+            ProgressView("Loading Video...")
+                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                .padding()
+                .background(Color.black.opacity(0.6))
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                .zIndex(1)
                             }
-                            .disabled(true)
-                        }
-                        .frame(height: 20) // Give GeometryReader a defined height for the banner
-                        .clipped() // Clip content outside the GeometryReader frame
-                        .shadow(color: .black.opacity(0.5), radius: 1)
-                        // Offset slightly below the vertical center for positioning between banners
-                        .offset(y: 5) // Adjust this offset value as needed
 
-                        // ON GRANDMA! Text
-                        VStack(spacing: 0) {
-                            Spacer() // Pushes ON GRANDMA down within its ZStack layer
-                                .frame(height: 20) // Adjust as needed based on desired banner spacing
+        // Progress Indicator for Uploads
+        if mapViewModel.isUploading {
+             VStack {
+                 Text("Uploading Video...")
+                     .font(.caption)
+                     .foregroundColor(.white)
+                 ProgressView(value: mapViewModel.uploadProgress)
+                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                     .padding(.horizontal, 6)
+                     .frame(width: 150)
+             }
+             .padding(.vertical, 10)
+             .padding(.horizontal, 12)
+             .background(Color.black.opacity(0.7))
+             .cornerRadius(8)
+             .shadow(radius: 3)
+             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+             .transition(.opacity)
+             .zIndex(1)
+         }
+    }
 
-                            Text("ON GRANDMA!")
-                                // Use adaptive size with custom font
-                                .font(.custom("BlackOpsOne-Regular", size: horizontalSizeClass == .regular ? 24 : 18))
-                                .foregroundColor(DPUTheme.colors.alertRed)
-                                .tracking(1.0)
-                                .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                                .rotationEffect(.degrees(-15))
-                        }
-                    }
-                    // Position banner directly under the dynamic island
-                    .padding(.top, geometry.safeAreaInsets.top - 35) // Significant negative adjustment to position right under dynamic island
+    // MARK: - Control Subviews
 
-                    Spacer() // Pushes filters/bottom controls down
-                    
-                    // Right-side filters (visually centred vertically)
-                    VStack { // outer spacer stack for vertical centering
+    @ViewBuilder
+    private func topControls(geometry: GeometryProxy) -> some View {
+         HStack {
+             Text("DONTPULLUP")
+                 .font(.custom("BlackOpsOne-Regular", size: 18)) // Use compact font size
+                 .foregroundColor(colorScheme == .dark ? .white : .black)
+                 .padding(.leading)
+
                         Spacer()
-                        // Use adaptive spacing based on size class
-                        let filterButtonSpacing: CGFloat = horizontalSizeClass == .regular ? 18 : 12
-                        VStack(spacing: filterButtonSpacing) {
-                            ForEach(IncidentType.allCases, id: \.self) { type in
-                                filterButton(for: type, size: geometry.size, horizontalSizeClass: horizontalSizeClass)
-                            }
+             // Add other top controls if needed (e.g., search bar)
+         }
+         .padding(.top, geometry.safeAreaInsets.top)
+         .frame(height: 44) // Standard navigation bar height
+    }
 
-                            // Device-specific pins filter button (shows only my pins)
-                            Button(action: {
-                                HapticManager.feedback(.medium)
-                                mapViewModel.toggleMyPinsFilter()
-                            }) {
-                                ZStack {
-                                    let baseSize: CGFloat = horizontalSizeClass == .regular ? 48 : 44
-                                    let adjustedSize = baseSize * 0.9
-                                    let baseFont: CGFloat = horizontalSizeClass == .regular ? 24 : 20
-                                    let adjustedFont = baseFont * 0.9
 
-                                    Circle()
-                                        .fill(mapViewModel.showingOnlyMyPins ? Color.blue : Color.gray.opacity(0.5))
-                                        .frame(width: adjustedSize, height: adjustedSize)
+    @ViewBuilder
+    private func rightSideControls(geometry: GeometryProxy) -> some View {
+        VStack(alignment: .trailing) {
+             Spacer() // Pushes controls down
 
-                                    Text("📱")
-                                        .font(.system(size: adjustedFont))
-                                }
-                            }
-                        }
-                        .tag(101)
-                        .padding(.trailing, horizontalSizeClass == .regular ? 24 : 16)
-                        .offset(y: -geometry.size.height * 0.25) // elevate stack ~25% screen height so it sits above zoom controls
+             // Filter Buttons (Vertically)
+             VStack(spacing: 12) { // Use compact spacing
+                 ForEach(IncidentType.allCases.filter { $0 != .none }) { type in
+                     filterButton(for: type, size: geometry.size)
+                 }
+             }
+             .padding(.trailing, 16) // Use compact padding
+
+             Spacer().frame(height: 30) // Space between filters and zoom/location
+
+             // Zoom and Location Buttons
+             VStack(spacing: 10) { // Use default spacing
+                 Button { mapViewModel.zoomIn() } label: { Image(systemName: "plus") }
+                     .buttonStyle(MapControlButton()) // Style applied
+
+                 Button { mapViewModel.zoomOut() } label: { Image(systemName: "minus") }
+                     .buttonStyle(MapControlButton())
+
+                 LocationButton(.currentLocation) { mapViewModel.requestLocationUpdate() }
+                                .foregroundColor(.white)
+                     .cornerRadius(20) // Compact corner radius
+                     .labelStyle(.iconOnly)
+                     .symbolVariant(.fill)
+                     .tint(colorScheme == .dark ? .gray.opacity(0.8) : .blue)
+                     .frame(width: 40, height: 40) // Use compact size
+                     .shadow(radius: 3)
+             }
+             .padding(.trailing, 16) // Use compact padding
+             .padding(.bottom, geometry.safeAreaInsets.bottom + 70) // Adjust to position above bottom controls
+         }
+         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func bottomControls(geometry: GeometryProxy) -> some View {
+         let bottomControlSpacing: CGFloat = 20 // Use compact spacing
+         let bottomControlSize: CGFloat = 40 // Use compact size
+
+         HStack(spacing: bottomControlSpacing) {
                         Spacer()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing) // Anchor to the right edge
+             // Help Button
+             Button { showingHelp = true } label: { Image(systemName: "questionmark.circle.fill") }
+                 .buttonStyle(MapControlButton(size: bottomControlSize))
 
-                    // Network status indicator
-                    if !networkMonitor.isConnected {
-                        Text("Offline Mode - Some features may be limited")
-                            .font(.caption2)
-                            .foregroundColor(.yellow)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(4)
-                            .padding(.bottom, 4)
-                    }
-                    
-                    // Bottom controls
-                    // Use adaptive spacing based on size class
-                    let bottomControlSpacing: CGFloat = horizontalSizeClass == .regular ? 30 : 20
-                    let bottomControlSize: CGFloat = horizontalSizeClass == .regular ? 50 : 40
-                    HStack(spacing: bottomControlSpacing) { // Adaptive spacing
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            mapViewModel.showingHelp = true
-                        }) {
-                            Image(systemName: "questionmark.circle.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
+             // Settings Button
+             Button { showingSettings = true } label: { Image(systemName: "gearshape.fill") }
+                 .buttonStyle(MapControlButton(size: bottomControlSize))
                         
-                        // Settings Button
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            showingSettings = true
-                        }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
-                        
-                        // Map Type Toggle Button - Added back
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            mapViewModel.toggleMapType()
-                        }) {
-                            Image(systemName: "map.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize)
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
-                        
-                        Spacer()
-                        
-                        // Center Location Button
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            mapViewModel.centerOnUserLocation()
-                        }) {
-                            Image(systemName: "location.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
-                        .tag(100) // Tag for onboarding tooltip
-                        
-                        // Edit Mode Button
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            mapViewModel.toggleEditMode()
-                        }) {
-                            Image(systemName: mapViewModel.isEditMode ? "xmark.circle.fill" : "pencil.circle.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24))
-                                .foregroundColor(mapViewModel.isEditMode ? .red : .white)
-                                .frame(width: bottomControlSize, height: bottomControlSize)
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
+            // Map Type Button
+            Button { mapViewModel.toggleMapType() } label: {
+                 Image(systemName: mapViewModel.mapType == .standard ? "map.fill" : "globe.americas.fill")
+             }
+             .buttonStyle(MapControlButton(size: bottomControlSize))
                         
                         // Profile Button
-                        Button(action: {
-                            HapticManager.feedback(.medium)
-                            showingProfile = true
-                        }) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: horizontalSizeClass == .regular ? 28 : 24)) // Adaptive icon size
-                                .foregroundColor(.white)
-                                .frame(width: bottomControlSize, height: bottomControlSize) // Adaptive size
-                                .background(Color.black.opacity(0.4))
-                                .clipShape(Circle())
-                        }
-                        .tag(102) // Tag for onboarding tooltip
-                    }
-                    .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 12) // Adaptive padding
-                    .padding(.bottom, horizontalSizeClass == .regular ? 10 : 4) // Adaptive padding
-                }
-            }
-        }
-        // Listen for notification events using onReceive
-        .onReceive(termsOfServicePublisher) { _ in
-            showingTermsOfService = true
-        }
-        .onReceive(privacyPolicyPublisher) { _ in
-            showingPrivacyPolicy = true
-        }
-        .sheet(isPresented: $mapViewModel.showingIncidentPicker) {
-            IncidentTypePicker(viewModel: mapViewModel)
-        }
-        .fullScreenOrSheet(isPresented: $mapViewModel.showingHelp) {
-            HelpView()
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environmentObject(authState)
-                .onAppear {
-                    if isPad() {
-                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                           let window = windowScene.windows.first,
-                           let rootVC = window.rootViewController,
-                           let presentedVC = rootVC.presentedViewController {
-                            
-                            presentedVC.modalPresentationStyle = .fullScreen
-                            presentedVC.modalTransitionStyle = .crossDissolve
-                        }
-                    }
-                }
-        }
-        .sheet(isPresented: $showingProfile) {
-            ProfileView()
-                .environmentObject(authState)
-        }
-        .sheet(isPresented: $showingTermsOfService) {
-            // Present the dedicated TermsOfServiceView
-            NavigationView {
-                TermsOfServiceView()
-                    .navigationBarItems(trailing: Button("Done") { showingTermsOfService = false })
-            }
-            .preferredColorScheme(.dark)
-        }
-        .sheet(isPresented: $showingPrivacyPolicy) {
-            // Present the dedicated PrivacyPolicyView
-            NavigationView {
-                PrivacyPolicyView()
-                    .navigationBarItems(trailing: Button("Done") { showingPrivacyPolicy = false })
-            }
-            .preferredColorScheme(.dark)
-        }
-        .alert("Alert", isPresented: $mapViewModel.showAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(mapViewModel.alertMessage ?? "")
-        }
+             Button { showingProfile = true } label: { Image(systemName: "person.crop.circle.fill") }
+                 .buttonStyle(MapControlButton(size: bottomControlSize))
+             Spacer()
+         }
+         .padding(.horizontal, 12) // Use compact padding
+         .padding(.bottom, geometry.safeAreaInsets.bottom + 4) // Use compact padding
+         .frame(maxWidth: .infinity)
+         .background(
+             LinearGradient(gradient: Gradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.5)]), startPoint: .top, endPoint: .bottom)
+                 .edgesIgnoringSafeArea(.bottom)
+                 .frame(height: geometry.safeAreaInsets.bottom + 60) // Adjust height
+                 .offset(y: geometry.safeAreaInsets.bottom + 20) // Adjust offset
+         )
     }
-    
-    private func filterButton(for type: IncidentType, size: CGSize, horizontalSizeClass: UserInterfaceSizeClass?) -> some View {
-        // Base dimensions
-        let baseSize: CGFloat = horizontalSizeClass == .regular ? 48 : 44
-        let adjustedSize = baseSize * 0.9 // Reduce by 10%
-        let baseFont: CGFloat = horizontalSizeClass == .regular ? 24 : 20
-        let adjustedFont = baseFont * 0.9 // Reduce by 10%
 
-        return Button(action: {
-            // Use the stronger forceFeedback for filter toggles
-            HapticManager.forceFeedback()
-            // Also log for debugging
-            print("Filter button pressed - haptic triggered")
-            mapViewModel.toggleFilter(type)
-        }) {
+    // Helper for filter buttons
+    @ViewBuilder
+    private func filterButton(for type: IncidentType, size: CGSize) -> some View {
+        let isSelected = mapViewModel.activeFilters.contains(type)
+        let baseSize: CGFloat = 44 // Use compact size
+        let baseFont: CGFloat = 20 // Use compact font size
+
+        Button(action: { mapViewModel.toggleFilter(incidentType: type) }) {
             ZStack {
                 Circle()
-                    .fill(mapViewModel.selectedFilters.contains(type) ? type.color : Color.gray.opacity(0.5))
-                    .frame(width: adjustedSize, height: adjustedSize)
+                     .fill(isSelected ? type.color : Color.gray.opacity(0.6))
+                     .frame(width: baseSize, height: baseSize)
+                     .shadow(radius: 2)
 
-                Text(type.emoji)
-                    .font(.system(size: adjustedFont))
+                 Image(systemName: type.iconName)
+                     .font(.system(size: baseFont))
+                     .foregroundColor(.white)
+             }
+             .overlay(
+                 Circle()
+                     .stroke(isSelected ? Color.white : Color.clear, lineWidth: 2)
+             )
+        }
+        .scaleEffect(isSelected ? 1.1 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+    }
+
+    // MARK: - Sheet Content
+
+    @ViewBuilder
+    private func videoPlayerSheetContent() -> some View {
+        if let player = videoPlayer {
+            VideoPlayer(player: player)
+                .edgesIgnoringSafeArea(.all)
+                .onAppear { player.play() }
+        } else {
+            VStack { Text("Could not load video."); ProgressView() }
+                    }
+                }
+
+    @ViewBuilder
+    private func incidentPickerSheetContent() -> some View {
+        IncidentTypePicker(selectedType: $mapViewModel.selectedIncidentTypeForNewPin) {
+            if let coordinate = newPinCoordinate, let type = mapViewModel.selectedIncidentTypeForNewPin {
+                mapViewModel.uploadVideoAndCreatePin(coordinate: coordinate, incidentType: type)
+                showingIncidentPicker = false
+                newPinCoordinate = nil
             }
         }
     }
-}
 
-// Simple helper to detect iPads reliably
-private func isPad() -> Bool {
-    return UIDevice.current.userInterfaceIdiom == .pad
-}
+    // MARK: - Alert Content
 
-// Helper extension to estimate text width (simplistic)
-extension String {
-    func widthOfString(usingFont font: UIFont) -> CGFloat {
-        let fontAttributes = [NSAttributedString.Key.font: font]
-        let size = self.size(withAttributes: fontAttributes)
-        return size.width
+    private func locationDisabledAlertButtons() -> some View {
+        Group {
+            Button("OK") { }
+            Button("Settings") { openAppSettings() }
+        }
+    }
+
+    private func locationDisabledAlertMessage() -> Text { Text("Location services are disabled. Please enable them in Settings to use map features.") }
+
+    private func errorAlertButtons() -> some View { Button("OK") { mapViewModel.activeError = nil } }
+    
+    private func authRequiredAlertButtons() -> some View { Button("OK") { } }
+    private func authRequiredAlertMessage() -> Text { Text("You need to be logged in to drop a pin.") }
+
+    private func distanceAlertButtons() -> some View { Button("OK") { } }
+    private func distanceAlertMessage() -> Text { Text("You must be within 200 feet of your current location to drop a pin.") }
+
+
+    // MARK: - Event Handlers & Helpers
+
+    private func handleOnAppear() {
+        mapViewModel.checkIfLocationServicesIsEnabled()
+    }
+
+    private func handleAuthStatusChange(oldStatus: CLAuthorizationStatus, newStatus: CLAuthorizationStatus) {
+        showLocationDisabledAlert = (newStatus == .denied || newStatus == .restricted)
+    }
+
+    private func handleLongPress(screenCoordinate: CGPoint, geometry: GeometryProxy) {
+        guard authState.isUserAuthenticated == .signedIn && authState.currentUser != nil else {
+            mapViewModel.showAuthenticationRequiredAlert = true
+            return
+        }
+        let locationCoordinate = mapViewModel.convertScreenCoordinateToLocation(screenCoordinate: screenCoordinate, geometry: geometry)
+        mapViewModel.checkDistanceAndPreparePin(coordinate: locationCoordinate) { isAllowed in
+            if isAllowed {
+                self.newPinCoordinate = locationCoordinate
+                self.showingIncidentPicker = true
+            }
+        }
+    }
+
+    private func advanceOnboarding() {
+        // HapticManager.feedback(.light)
+        currentOnboardingStep += 1
+        if currentOnboardingStep >= onboardingInstructions.count {
+            hasCompletedOnboarding = true
+            }
+        }
+
+    private func skipOnboarding() {
+        // HapticManager.feedback(.medium)
+        hasCompletedOnboarding = true
+        currentOnboardingStep = onboardingInstructions.count // Ensure loop condition fails
+    }
+
+    private func openAppSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func playVideo(for pin: Pin) async {
+         guard let videoURLString = pin.videoURL else {
+             mapViewModel.activeError = PinError.missingURL; return
+         }
+         isLoadingVideo = true
+         videoURLToPlay = await mapViewModel.fetchVideoURL(urlString: videoURLString)
+         isLoadingVideo = false
+         guard let url = videoURLToPlay else {
+             mapViewModel.activeError = PinError.urlCreationFailed; return
+         }
+         videoPlayer = AVPlayer(url: url)
+         showVideoPlayer = true
+     }
+
+    private func stopVideo() {
+        videoPlayer?.pause()
+        videoPlayer = nil
+        videoURLToPlay = nil
+        showVideoPlayer = false
     }
 }
 
+// MARK: - Previews
 struct MainTabView_Previews: PreviewProvider {
     static var previews: some View {
         MainTabView()
-            .environmentObject(AuthState.shared)
-            .environmentObject(NetworkMonitor())
-    }
-}
-
-#if DEBUG
-// ... existing code ...
-#endif
-
-// MARK: - Full Screen or Sheet Helper
-extension View {
-    /// Presents HelpView as a full screen cover on iOS14+ and fallback to sheet on earlier versions, with full screen coverage.
-    @ViewBuilder
-    func fullScreenOrSheet<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
-        if #available(iOS 14.0, *) {
-            fullScreenCover(isPresented: isPresented) {
-                content()
-                    .edgesIgnoringSafeArea(.all)
-            }
-        } else {
-            // For iOS 13, use sheet but force max height
-            sheet(isPresented: isPresented) {
-                content()
-                    .frame(maxHeight: .infinity) // Encourage full height
-                    .edgesIgnoringSafeArea(.all) // Still ignore safe area within sheet
-            }
-        }
+            .environmentObject(AuthState.mockLoggedIn()) // Use mock state
+            .environmentObject(NetworkMonitor()) // Provide network monitor
+            // Add other necessary environment objects for preview
     }
 } 

@@ -2,202 +2,179 @@ import SwiftUI
 import FirebaseAuth
 
 struct ProfileView: View {
-    @EnvironmentObject private var authState: AuthState
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var showSignOutConfirmation = false
-    @State private var showDeleteAccountConfirmation = false
-    @State private var isDeleting = false
-    @State private var deleteError: String? = nil
-    @State private var showDeleteError = false
-    
+    @EnvironmentObject var authState: AuthState
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @State private var showingLogoutConfirmation = false
+
     var body: some View {
         NavigationView {
-            ZStack { // Outer ZStack for background
-                // Original ZStack content becomes the main content container
-                VStack {
-                    // User avatar and name
-                    VStack(spacing: horizontalSizeClass == .regular ? 20 : 12) {
-                        Circle()
-                            .fill(Color.gray)
-                            .frame(width: horizontalSizeClass == .regular ? 150 : 100, height: horizontalSizeClass == .regular ? 150 : 100)
-                            .overlay(
-                                Image(systemName: "person.fill")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .foregroundColor(.white)
-                                    .padding(horizontalSizeClass == .regular ? 30 : 20)
-                            )
-                        
-                        Text(userName)
-                            .font(horizontalSizeClass == .regular ? .largeTitle : .title)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        
-                        Text(userEmail)
-                            .font(horizontalSizeClass == .regular ? .title3 : .subheadline)
+            ScrollView {
+                VStack(spacing: 16) { // Use default spacing
+                    // Profile Header
+                    VStack(spacing: 12) { // Use compact spacing
+                        Image(systemName: "person.circle.fill") // Placeholder image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 100, height: 100) // Use compact size
+                            .foregroundColor(.gray)
+                            .padding(.top, 20)
+
+                        Text(authState.user?.email ?? "Guest User")
+                            .font(.title) // Use compact font
+                            .fontWeight(.medium)
+
+                        Text("Joined: [Date Placeholder]") // Placeholder for join date
+                            .font(.subheadline) // Use compact font
                             .foregroundColor(.gray)
                     }
-                    .padding(.top, horizontalSizeClass == .regular ? 60 : 40)
-                    
-                    // Stats section
-                    VStack(spacing: horizontalSizeClass == .regular ? 30 : 20) {
-                        HStack(spacing: horizontalSizeClass == .regular ? 60 : 30) {
-                            StatView(title: "Reports", value: "12", horizontalSizeClass: horizontalSizeClass)
-                            StatView(title: "Upvotes", value: "48", horizontalSizeClass: horizontalSizeClass)
-                            StatView(title: "Days", value: "30", horizontalSizeClass: horizontalSizeClass)
+                    .padding(20) // Use compact padding
+                    .background(Color(.systemGray6))
+                    .cornerRadius(15)
+                    .padding(.horizontal)
+                    .padding(.top, 40) // Use compact padding
+
+                    // User Stats
+                    VStack(spacing: 20) { // Use compact spacing
+                        HStack(spacing: 30) { // Use compact spacing
+                            StatView(title: "Reports", value: "12") // Removed horizontalSizeClass passing
+                            StatView(title: "Upvotes", value: "48") // Removed horizontalSizeClass passing
+                            StatView(title: "Days", value: "30") // Removed horizontalSizeClass passing
                         }
                     }
-                    .padding(.top, horizontalSizeClass == .regular ? 60 : 40)
-                    
-                    Spacer()
-                    
-                    // Account Actions Section - Use adaptive width for iPad
-                    VStack(spacing: horizontalSizeClass == .regular ? 24 : 16) {
-                        // Sign out button
-                        Button(action: {
-                            showSignOutConfirmation = true
-                        }) {
-                            Text("Sign Out")
-                                .font(horizontalSizeClass == .regular ? .title3 : .headline)
-                                .foregroundColor(.white)
-                                .padding()
-                                .frame(maxWidth: horizontalSizeClass == .regular ? 400 : .infinity)
-                                .background(Color.red.opacity(0.8))
-                                .cornerRadius(horizontalSizeClass == .regular ? 15 : 10)
+                    .padding(.top, 40) // Use compact padding
+
+                    // Action Buttons
+                    VStack(spacing: 16) { // Use compact spacing
+                        Button {
+                            // Action for Edit Profile
+                            print("Edit Profile Tapped")
+                        } label: {
+                            HStack {
+                                Image(systemName: "pencil")
+                                Text("Edit Profile")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
                         }
-                        .frame(maxWidth: .infinity) // Ensure button is always centered
-                        
-                        // Delete Account button - Make more prominent to satisfy Apple's requirements
-                        Button(action: {
-                            showDeleteAccountConfirmation = true
-                        }) {
-                            Text("Delete My Account")
-                                .font(horizontalSizeClass == .regular ? .title3 : .headline)
-                                .foregroundColor(.white)
-                                .padding()
-                                .frame(maxWidth: horizontalSizeClass == .regular ? 400 : .infinity)
-                                .background(Color.red)
-                                .cornerRadius(horizontalSizeClass == .regular ? 15 : 10)
+                        .buttonStyle(ProfileButtonStyle()) // Use compact font/frame via style
+
+                        Button {
+                            // Action for Settings
+                            print("Settings Tapped")
+                        } label: {
+                            HStack {
+                                Image(systemName: "gear")
+                                Text("Settings")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
                         }
-                        .frame(maxWidth: .infinity) // Ensure button is always centered
+                        .buttonStyle(ProfileButtonStyle())
+
+                        Button(role: .destructive) {
+                            showingLogoutConfirmation = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.left.square.fill")
+                                Text("Logout")
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(ProfileButtonStyle(isDestructive: true))
+
                     }
-                    .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 16)
-                    .padding(.bottom, horizontalSizeClass == .regular ? 40 : 20)
+                    .padding(.horizontal) // Use default horizontal padding
+                    .padding(.bottom, 20) // Use compact bottom padding
+
+                    Spacer() // Push content to top
                 }
-                .padding(horizontalSizeClass == .regular ? 32 : 16)
+                .padding(16) // Use default padding
             }
-            .background(Color.black.edgesIgnoringSafeArea(.all))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
-            // Sign Out Alert
-            .alert("Sign Out", isPresented: $showSignOutConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Sign Out", role: .destructive) {
-                    _ = authState.signOut()
-                }
-            } message: {
-                Text("Are you sure you want to sign out?")
-            }
-            // Delete Account Alert
-            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Delete", role: .destructive) {
-                    Task {
-                        await deleteAccount()
-                    }
-                }
-            } message: {
-                Text("This will permanently delete your account and all associated data. This action cannot be undone.")
-            }
-            // Error Alert
-            .alert("Error Deleting Account", isPresented: $showDeleteError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(deleteError ?? "An unknown error occurred.")
-            }
-            // Deletion Progress Overlay
-            .overlay(
-                Group {
-                    if isDeleting {
-                        ZStack {
-                            Color.black.opacity(0.7)
-                                .ignoresSafeArea()
-                            VStack(spacing: 16) {
-                                ProgressView("Deleting your account...")
-                                    .progressViewStyle(CircularProgressViewStyle())
-                                    .foregroundColor(.white)
-                                    .scaleEffect(horizontalSizeClass == .regular ? 1.5 : 1.0)
-                                Text("This may take a moment.")
-                                    .font(horizontalSizeClass == .regular ? .body : .footnote)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(10)
-                        }
-                    }
-                }
-            )
+            .background(Color(.systemGroupedBackground)) // Use system background
+            .alert("Confirm Logout", isPresented: $showingLogoutConfirmation) {
+                 Button("Cancel", role: .cancel) { }
+                 Button("Logout", role: .destructive) {
+                     authViewModel.signOut()
+                 }
+             } message: {
+                 Text("Are you sure you want to logout?")
+             }
         }
-        .navigationViewStyle(.stack)
-    }
-    
-    private func deleteAccount() async {
-        isDeleting = true
-        
-        let result = await authState.deleteAccount()
-        
-        DispatchQueue.main.async {
-            self.isDeleting = false
-            
-            switch result {
-            case .success:
-                // Account deleted, will be handled by AuthState listener
-                // Optionally post a notification for any special handling
-                NotificationCenter.default.post(name: NSNotification.Name("UserLoggedOut"), object: nil)
-                
-            case .failure(let error):
-                self.deleteError = error.localizedDescription
-                self.showDeleteError = true
-            }
-        }
-    }
-    
-    private var userName: String {
-        if let user = authState.currentUser {
-            return user.displayName ?? "Anonymous User"
-        }
-        return "Anonymous User"
-    }
-    
-    private var userEmail: String {
-        if let user = authState.currentUser, let email = user.email {
-            return email
-        }
-        return "No email provided"
     }
 }
 
+// Custom Button Style for Profile
+struct ProfileButtonStyle: ButtonStyle {
+    var isDestructive: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding()
+            .background(isDestructive ? Color.red.opacity(0.1) : Color(.systemGray5))
+            .foregroundColor(isDestructive ? .red : .primary)
+            .font(.headline) // Use compact font size
+            .frame(maxWidth: .infinity) // Use compact frame width
+            .cornerRadius(10) // Use compact corner radius
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+// Stat View Component
 struct StatView: View {
     let title: String
     let value: String
-    var horizontalSizeClass: UserInterfaceSizeClass?
-    
+
     var body: some View {
-        VStack(spacing: horizontalSizeClass == .regular ? 12 : 8) {
+        VStack(spacing: 8) { // Use compact spacing
             Text(value)
-                .font(horizontalSizeClass == .regular ? .largeTitle : .title)
+                .font(.title) // Use compact font size
                 .fontWeight(.bold)
-                .foregroundColor(.white)
-            
+
             Text(title)
-                .font(horizontalSizeClass == .regular ? .headline : .caption)
+                .font(.caption) // Use compact font size
                 .foregroundColor(.gray)
         }
+        .frame(width: 80) // Set a fixed width for alignment
     }
 }
 
-#Preview {
-    ProfileView()
-        .environmentObject(AuthState.shared)
-} 
+// Preview
+struct ProfileView_Previews: PreviewProvider {
+    static var previews: some View {
+        ProfileView()
+            .environmentObject(AuthState.mockLoggedIn())
+            .environmentObject(AuthViewModel())
+    }
+}
+
+// Extension for Mock AuthState
+extension AuthState {
+    static func mockLoggedIn() -> AuthState {
+        let state = AuthState()
+        // Simulate a logged-in user for preview
+        // You might need to create a mock Firebase User object or use placeholder data
+        // For simplicity, we'll just set a placeholder email.
+        // In a real app, you'd use a more robust mocking setup.
+        // state.user = MockUser(uid: "previewUser123", email: "preview@example.com")
+        state.isUserAuthenticated = .signedIn // Simulate signed in state
+        // You might need a way to set a mock user object here if ProfileView uses it
+        // state.user = MockFirebaseUser(uid: "mockUID", email: "mock@example.com")
+        return state
+    }
+}
+
+// Define a Mock Firebase User if needed for previews
+// import FirebaseAuth
+// struct MockFirebaseUser: User {
+//     var uid: String
+//     var email: String?
+//     // Add other properties needed by ProfileView from the User protocol
+//     var displayName: String? = nil
+//     var photoURL: URL? = nil
+//     var providerID: String = "mock"
+//     var isAnonymous: Bool = false
+//     // ... add other required properties or conformances
+// } 
