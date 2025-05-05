@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isValidCoordinate(lat, lng) {
+      return lat is float && lng is float 
+        && lat >= -90 && lat <= 90 
+        && lng >= -180 && lng <= 180;
+    }
+    
+    function isValidIncidentType(type) {
+      return type in ['Verbal', 'Physical', '911'];
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Allow read access to all collections during development
+    match /{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Pins collection rules
+    match /pins/{pinId} {
+      // Allow read access to all authenticated users
+      allow read: if isAuthenticated();
+      
+      // Allow creation with strict validation
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasAll(['latitude', 'longitude', 'type', 'videoURL', 'userID', 'timestamp', 'deviceID'])
+        && isValidCoordinate(request.resource.data.latitude, request.resource.data.longitude)
+        && isValidIncidentType(request.resource.data.type)
+        && request.resource.data.userID == request.auth.uid
+        && request.resource.data.timestamp is timestamp;
+      
+      // Allow updates and deletes only for pin owners
+      allow update, delete: if isAuthenticated()
+        && resource.data.userID == request.auth.uid
+        && (request.resource == null || request.resource.data.userID == request.auth.uid);
+    }
+    
+    // User data rules
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "rules": {
+    "pins": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$pin": {
+        ".validate": "newData.hasChildren(['latitude', 'longitude', 'type', 'videoURL', 'userID', 'timestamp', 'deviceID']) &&
+                     newData.child('latitude').isNumber() &&
+                     newData.child('longitude').isNumber() &&
+                     newData.child('type').val().matches(/^(Verbal|Physical|911)$/) &&
+                     newData.child('videoURL').isString() &&
+                     newData.child('userID').val() == auth.uid &&
+                     newData.child('timestamp').isNumber()"
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+}
