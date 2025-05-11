@@ -55,28 +55,31 @@ struct AuthView: View {
                 
                 // Content
                 VStack(spacing: 0) {
-                    // Top section with title
-                    Spacer().frame(height: geometry.safeAreaInsets.top + 20)
+                    // Top section with title and adequate spacing
+                    Spacer().frame(height: geometry.safeAreaInsets.top + 40)
                     
-                    // Middle section with tagline
-                    Text("Show us who they are\nso we can show them who we not")
+                    // App title (DON'T PULL UP) - REMOVED
+                    
+                    // Middle section with tagline and improved spacing
+                    Text("Show us who they are\\nso we can show them who we not")
                         .font(.custom("BlackOpsOne-Regular", size: 20))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.5), radius: 3)
-                        .padding(.horizontal, 10)
-                        .padding(.top, 40)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 30) // Adjusted top padding
+                        .padding(.bottom, 30) // Adjusted bottom padding
                     
                     Spacer()
                     
                     // Bottom section with buttons
-                    VStack(spacing: 16) {
+                    VStack(spacing: 20) { // Increased spacing between buttons
                         Button(action: { isShowingSignIn = true }) {
                             Text("Sign In")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: 55) // Increased touch target
                                 .background(Color.blue)
                                 .cornerRadius(25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
@@ -89,7 +92,7 @@ struct AuthView: View {
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(.white)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: 55) // Increased touch target
                                 .background(Color.green)
                                 .cornerRadius(25)
                                 .shadow(color: .black.opacity(0.3), radius: 4)
@@ -101,6 +104,7 @@ struct AuthView: View {
                             if isLoading {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(1.2)
                             } else {
                                 Text("Continue as Guest")
                                     .font(.system(size: 16, weight: .medium))
@@ -112,9 +116,9 @@ struct AuthView: View {
                         .padding(.horizontal, 24)
                         .frame(maxWidth: 400)
                         .disabled(isLoading)
-                        .padding(.top, 8)
+                        .padding(.top, 12)
                     }
-                    .padding(.bottom, max(20, 40))
+                    .padding(.bottom, max(30, geometry.safeAreaInsets.bottom + 40))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -147,7 +151,6 @@ struct AuthView: View {
     }
 }
 
-// Rename LoginView to SignInView and update its structure
 struct SignInView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var authState: AuthState
@@ -173,61 +176,72 @@ struct SignInView: View {
                         .edgesIgnoringSafeArea(.all)
                     
                     // Original ZStack content
-                    ZStack {
-                        ScrollView {
-                            VStack {
-                                Spacer()
-                                    .frame(height: 40)
+                    ScrollView {
+                        VStack {
+                            // Add explicit spacing at the top
+                            Spacer()
+                                .frame(height: geometry.safeAreaInsets.top + 16)
                                 
-                                VStack(spacing: 20) {
-                                    TextField("Email", text: $email)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .textContentType(.emailAddress)
-                                        .autocapitalization(.none)
-                                        .font(.system(size: 16))
-                                    
-                                    SecureField("Password", text: $password)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .textContentType(.password)
-                                        .font(.system(size: 16))
-                                }
-                                .padding(.horizontal, 24)
+                            // Title with proper spacing
+                            Text("Sign In")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.top, 24)
+                                .padding(.bottom, 36)
+                            
+                            VStack(spacing: 24) { // Increased spacing between form fields
+                                TextField("Email", text: $email)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.emailAddress)
+                                    .autocapitalization(.none)
+                                    .font(.system(size: 16))
+                                    .padding(.vertical, 8) // Added padding
                                 
-                                Spacer()
-                                
-                                // Bottom button - ensure it stays visible
-                                Button(action: performSignIn) {
-                                    ZStack {
-                                        if isLoading {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        } else {
-                                            Text("Sign In")
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 50)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.blue)
-                                .cornerRadius(25)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + 20))
-                                .disabled(isLoading || email.isEmpty || password.isEmpty)
-                                .frame(maxWidth: 400)
+                                SecureField("Password", text: $password)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.password)
+                                    .font(.system(size: 16))
+                                    .padding(.vertical, 8) // Added padding
                             }
+                            .padding(.horizontal, 30)
+                            
+                            Spacer(minLength: 40)
+                            
+                            // Bottom button - ensure it stays visible
+                            Button(action: performSignIn) {
+                                ZStack {
+                                    if isLoading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(1.2)
+                                    } else {
+                                        Text("Sign In")
+                                            .font(.system(size: 18, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 55)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.blue)
+                            .cornerRadius(25)
+                            .padding(.horizontal, 30)
+                            .padding(.top, 20)
+                            .padding(.bottom, max(30, geometry.safeAreaInsets.bottom + 30))
+                            .disabled(isLoading || email.isEmpty || password.isEmpty)
+                            .frame(maxWidth: 400)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minHeight: geometry.size.height) // Ensure scrollable area fills screen
                     }
                 }
             }
-            .navigationTitle("Sign In")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitle("", displayMode: .inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { isPresented = false }
+                        .padding(.vertical, 8) // Increase tap target
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -237,6 +251,7 @@ struct SignInView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .fixInputAssistantHeight() // Apply custom input view fix
     }
     
     private func performSignIn() {
@@ -254,7 +269,6 @@ struct SignInView: View {
     }
 }
 
-// Rename RegisterView to SignUpView and update its structure
 struct SignUpView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var authState: AuthState
@@ -289,66 +303,90 @@ struct SignUpView: View {
                         .edgesIgnoringSafeArea(.all)
                         
                     // Original ZStack content
-                    ZStack {
-                        ScrollView {
-                            VStack {
-                                Spacer()
-                                    .frame(height: 40)
+                    ScrollView {
+                        VStack {
+                            // Add explicit spacing at the top
+                            Spacer()
+                                .frame(height: geometry.safeAreaInsets.top + 16)
                                 
-                                VStack(spacing: 20) {
-                                    TextField("Email", text: $email)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .textContentType(.emailAddress)
-                                        .autocapitalization(.none)
-                                        .font(.system(size: 16))
-                                    
-                                    SecureField("Password", text: $password)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .textContentType(.newPassword)
-                                        .font(.system(size: 16))
-                                    
-                                    SecureField("Confirm Password", text: $confirmPassword)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .textContentType(.newPassword)
-                                        .font(.system(size: 16))
-                                }
-                                .padding(.horizontal, 24)
+                            // Title with proper spacing
+                            Text("Create Account")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.top, 24)
+                                .padding(.bottom, 36)
+                            
+                            VStack(spacing: 24) { // Increased spacing between form fields
+                                TextField("Email", text: $email)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.emailAddress)
+                                    .autocapitalization(.none)
+                                    .font(.system(size: 16))
+                                    .padding(.vertical, 8) // Added padding
                                 
-                                Spacer()
+                                SecureField("Password", text: $password)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.newPassword)
+                                    .font(.system(size: 16))
+                                    .padding(.vertical, 8) // Added padding
                                 
-                                // Bottom button
-                                Button(action: performSignUp) {
-                                    ZStack {
-                                        if isLoading {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        } else {
-                                            Text("Create Account")
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 50)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.green)
-                                .cornerRadius(25)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, max(20, geometry.safeAreaInsets.bottom + 20))
-                                .disabled(isLoading || !isValid)
-                                .frame(maxWidth: 400)
+                                SecureField("Confirm Password", text: $confirmPassword)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(.newPassword)
+                                    .font(.system(size: 16))
+                                    .padding(.vertical, 8) // Added padding
                             }
+                            .padding(.horizontal, 30)
+                            
+                            Spacer(minLength: 40)
+                            
+                            // Password matching indicator
+                            if !password.isEmpty && !confirmPassword.isEmpty {
+                                HStack {
+                                    Image(systemName: passwordsMatch ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .foregroundColor(passwordsMatch ? .green : .red)
+                                    Text(passwordsMatch ? "Passwords match" : "Passwords don't match")
+                                        .font(.callout)
+                                        .foregroundColor(passwordsMatch ? .green : .red)
+                                }
+                                .padding(.top, 10)
+                            }
+                            
+                            // Bottom button
+                            Button(action: performSignUp) {
+                                ZStack {
+                                    if isLoading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(1.2)
+                                    } else {
+                                        Text("Create Account")
+                                            .font(.system(size: 18, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 55)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .cornerRadius(25)
+                            .padding(.horizontal, 30)
+                            .padding(.top, 20)
+                            .padding(.bottom, max(30, geometry.safeAreaInsets.bottom + 30))
+                            .disabled(isLoading || !isValid)
+                            .frame(maxWidth: 400)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minHeight: geometry.size.height) // Ensure scrollable area fills screen
                     }
                 }
             }
-            .navigationTitle("Create Account")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitle("", displayMode: .inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { isPresented = false }
+                        .padding(.vertical, 8) // Increase tap target
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -358,6 +396,7 @@ struct SignUpView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .fixInputAssistantHeight() // Apply custom input view fix
     }
     
     private func performSignUp() {

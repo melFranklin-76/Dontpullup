@@ -1,6 +1,5 @@
 import SwiftUI
 import FirebaseAuth
-import Combine
 
 @MainActor
 final class UserAuthViewModel: ObservableObject {
@@ -11,21 +10,10 @@ final class UserAuthViewModel: ObservableObject {
     
     // MARK: - Private Properties
     private let authState: AuthState
-    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Initialization
     init(authState: AuthState = .shared) {
         self.authState = authState
-        
-        // Subscribe to auth state changes
-        authState.$error
-            .compactMap { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] error in
-                self?.alertMessage = error.localizedDescription
-                self?.showAlert = true
-            }
-            .store(in: &cancellables)
     }
     
     // MARK: - Public Methods
@@ -83,9 +71,16 @@ final class UserAuthViewModel: ObservableObject {
     
     /// Signs out the current user
     func signOut() {
-        if !authState.signOut() {
-            alertMessage = "Failed to sign out"
-            showAlert = true
-        }
+        authState.signOut()
+    }
+    
+    /// Checks if the current user is anonymous
+    var isAnonymous: Bool {
+        return authState.isAnonymous
+    }
+    
+    /// Checks if the current user is registered (non-anonymous)
+    var isRegisteredUser: Bool {
+        return authState.isRegisteredUser
     }
 } 

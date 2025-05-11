@@ -29,13 +29,23 @@ struct SplashScreen: View {
                 Color.black.opacity(0.7)
                     .edgesIgnoringSafeArea(.all)
                 
-                // Original ZStack content
-                ZStack {
-                    // Only show splash content, controlled by RootView's isLoading
-                    SplashContent()
-                        .scaleEffect(scale)
-                        .opacity(opacity)
-                    // REMOVED mainContent logic from here
+                // Content with safe area padding
+                VStack {
+                    // Add top safe area padding
+                    Spacer().frame(height: geometry.safeAreaInsets.top)
+                    
+                    // Original ZStack content
+                    ZStack {
+                        // Only show splash content, controlled by RootView's isLoading
+                        SplashContent()
+                            .scaleEffect(scale)
+                            .opacity(opacity)
+                        // REMOVED mainContent logic from here
+                    }
+                    .padding(.top, 20) // Ensure content doesn't crowd top of screen
+                    
+                    // Add bottom safe area padding
+                    Spacer().frame(height: geometry.safeAreaInsets.bottom)
                 }
             }
         }
@@ -72,7 +82,7 @@ private struct SplashContent: View {
         GeometryReader { geometry in
             let size = min(geometry.size.width, geometry.size.height)
             
-            VStack(spacing: size * 0.05) {
+            VStack(spacing: size * 0.08) { // Increased spacing between icon and text
                 Group {
                     if let icon = appIcon {
                         Image(uiImage: icon)
@@ -90,10 +100,12 @@ private struct SplashContent: View {
                 .frame(width: size * 0.4, height: size * 0.4)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .shadow(color: .white.opacity(0.3), radius: 10)
+                .padding(.bottom, 16) // Additional bottom padding
                 
                 Text("Don't Pull Up")
-                    .font(.system(size: size * 0.08, weight: .bold, design: .rounded))
+                    .font(.system(size: size * 0.07, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
+                    .padding(.top, 8) // Additional top padding
             }
             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }
@@ -105,5 +117,7 @@ private struct SplashLoadingView: View {
     var body: some View {
         ProgressView()
             .progressViewStyle(CircularProgressViewStyle(tint: .white))
+            .scaleEffect(1.5) // Increase size for better visibility
+            .padding()
     }
 }

@@ -22,10 +22,19 @@ struct HelpView: View {
                     .edgesIgnoringSafeArea(.all)
 
                 VStack(spacing: 0) {
-                    Spacer() // Pushes the central content down
+                    // Add explicit spacer at the top to prevent navigation bar crowding
+                    Spacer().frame(height: 20)
+                    
+                    // Title with clear spacing
+                    Text("Help & Resources")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .padding(.top, 16)
+                        .padding(.bottom, 24)
+                        .foregroundColor(.white)
 
                     // Central Action Buttons
-                    VStack(spacing: 20) {
+                    VStack(spacing: 24) { // Increased spacing between buttons
                         actionButton(title: "Settings", systemImage: "gearshape.fill") {
                             showingSettings = true
                         }
@@ -43,17 +52,21 @@ struct HelpView: View {
                         }
                     }
                     .padding(.horizontal, 40) // Add horizontal padding
+                    .padding(.top, 20) // Add top padding
 
                     Spacer() // Pushes the central content up
                     Spacer() // Add more space at the bottom
                 }
+                .padding(.top, 16) // Additional top padding to ensure no crowding
             }
             // Add Navigation Bar items
             .navigationBarTitleDisplayMode(.inline)
             // Optionally add a title if desired, or leave it blank
             .navigationBarItems(trailing: Button("Done") {
                 dismiss()
-            })
+            }
+            .padding(.vertical, 8) // Add vertical padding to increase tap target
+            )
         }
         .navigationViewStyle(.stack) // Use stack style for modal presentation
         .preferredColorScheme(.dark) // Ensure dark mode for the NavigationView itself
@@ -69,14 +82,16 @@ struct HelpView: View {
         .sheet(isPresented: $showingTerms) {
             NavigationView {
                 TermsOfServiceView()
-                    .navigationBarItems(trailing: Button("Done") { showingTerms = false })
+                    .navigationBarItems(trailing: Button("Done") { showingTerms = false }
+                    .padding(.vertical, 8))
             }
             .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showingPrivacy) {
             NavigationView {
                 PrivacyPolicyView()
-                    .navigationBarItems(trailing: Button("Done") { showingPrivacy = false })
+                    .navigationBarItems(trailing: Button("Done") { showingPrivacy = false }
+                    .padding(.vertical, 8))
             }
             .preferredColorScheme(.dark)
         }
@@ -96,7 +111,8 @@ struct HelpView: View {
                     .font(.system(size: 14))
                     .opacity(0.5)
             }
-            .padding()
+            .padding(.vertical, 16) // Increased vertical padding for better touch targets
+            .padding(.horizontal, 20) // Consistent horizontal padding
             .frame(maxWidth: .infinity)
             .background(Color.black.opacity(0.5))
             .foregroundColor(.white)

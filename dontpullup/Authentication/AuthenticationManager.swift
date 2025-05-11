@@ -63,24 +63,6 @@ final class AuthenticationManager: ObservableObject {
         print("AuthenticationManager: Sign out successful")
     }
     
-    private func createUserProfile(for user: User) async throws()
-        self.currentUser = result.user
-        self.isAuthenticated = true
-        self.errorMessage = nil
-        print("AuthenticationManager: Anonymous sign in successful - User: \(result.user.uid)")
-        
-        // Create anonymous user profile
-        try await createUserProfile(for: result.user)
-    }
-    
-    func signOut() throws {
-        try Auth.auth().signOut()
-        self.currentUser = nil
-        self.isAuthenticated = false
-        self.errorMessage = nil
-        print("AuthenticationManager: Sign out successful")
-    }
-    
     private func createUserProfile(for user: User) async throws {
         let db = Firestore.firestore()
         let userRef = db.collection("users").document(user.uid)

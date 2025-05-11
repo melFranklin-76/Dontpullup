@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var authState: AuthState
+    @Environment(\.dismiss) private var dismiss
     @State private var notificationsEnabled = true
     @State private var locationTrackingEnabled = true
     @State private var darkModeEnabled = true
@@ -20,33 +21,69 @@ struct SettingsView: View {
                     .edgesIgnoringSafeArea(.all)
                     
                 VStack {
+                    // Add spacing at the top to prevent crowding with status bar
+                    Spacer()
+                        .frame(height: 16)
+                        
                     Form {
-                        Section(header: Text("General").foregroundColor(.white)) {
+                        // Improve section header visibility and spacing
+                        Section(header: 
+                            Text("GENERAL")
+                                .foregroundColor(.white)
+                                .font(.headline)
+                                .padding(.top, 16)
+                                .padding(.bottom, 8)
+                        ) {
+                            // Add more spacing between toggle items
                             Toggle("Enable Notifications", isOn: $notificationsEnabled)
                                 .toggleStyle(SwitchToggleStyle(tint: .red))
+                                .padding(.vertical, 8)
                             
                             Toggle("Location Tracking", isOn: $locationTrackingEnabled)
                                 .toggleStyle(SwitchToggleStyle(tint: .red))
+                                .padding(.vertical, 8)
                             
                             Toggle("Dark Mode", isOn: $darkModeEnabled)
                                 .toggleStyle(SwitchToggleStyle(tint: .red))
                                 .disabled(true) // Disabled as app is dark mode only
+                                .padding(.vertical, 8)
                             
                             Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
                                 .toggleStyle(SwitchToggleStyle(tint: .red))
+                                .padding(.vertical, 8)
+                            
+                            // Direct way to launch tutorial for testing
+                            Button(action: {
+                                UserDefaults.standard.set(false, forKey: "hasSeenTutorial")
+                                NotificationCenter.default.post(name: Notification.Name("ShowTutorialOverlay"), object: nil)
+                            }) {
+                                Label("Show Tutorial Guide", systemImage: "questionmark.circle")
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(.vertical, 8)
                         }
                         
-                        Section(header: Text("App Info").foregroundColor(.white)) {
+                        // Improve section header spacing
+                        Section(header: 
+                            Text("APP INFO")
+                                .foregroundColor(.white)
+                                .font(.headline)
+                                .padding(.top, 16)
+                                .padding(.bottom, 8)
+                        ) {
                             NavigationLink(destination: AboutView()) {
                                 Text("About Don't Pull Up")
+                                    .padding(.vertical, 4)
                             }
                             
                             NavigationLink(destination: PrivacyPolicyView()) {
                                 Text("Privacy Policy")
+                                    .padding(.vertical, 4)
                             }
                             
                             NavigationLink(destination: TermsOfServiceView()) {
                                 Text("Terms of Service")
+                                    .padding(.vertical, 4)
                             }
                         }
                         
@@ -57,12 +94,13 @@ struct SettingsView: View {
                                 Text("Reset All Settings")
                                     .foregroundColor(.red)
                             }
+                            .padding(.vertical, 4)
                         }
                         
                         Section {
                             HStack {
                                 Spacer()
-                                VStack(spacing: 4) {
+                                VStack(spacing: 8) { // Increased spacing between version texts
                                     Text("Don't Pull Up")
                                         .font(.headline)
                                         .foregroundColor(.gray)
@@ -73,6 +111,7 @@ struct SettingsView: View {
                                 }
                                 Spacer()
                             }
+                            .padding(.vertical, 8)
                         }
                         .listRowBackground(Color.black)
                     }
@@ -80,6 +119,7 @@ struct SettingsView: View {
                     .hideListBackgroundIfNeeded()
                     .listStyle(PlainListStyle())
                 }
+                .padding(.top, 16) // Additional padding to prevent crowding with nav bar
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -96,10 +136,38 @@ struct SettingsView: View {
     }
     
     private func resetSettings() {
+        // Reset UI state
         notificationsEnabled = true
         locationTrackingEnabled = true
         darkModeEnabled = true
         hapticFeedbackEnabled = true
+        
+        // Reset all user defaults related to authentication and tutorial
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "allowAnonymousAccess")
+        defaults.set(true, forKey: "shouldShowInstructions")
+        defaults.set(false, forKey: "hasSeenTutorial")
+        
+        // Notify the app to show tutorial when needed
+        NotificationCenter.default.post(name: Notification.Name("ShowTutorialOverlay"), object: nil)
+        
+        // Reset location permission preferences (this won't affect actual system permissions)
+        defaults.set(false, forKey: "userDeclinedLocationPermissions")
+        
+        // Sign out the user - this will trigger navigation back to the auth screen
+        authState.signOut()
+        
+        // Show confirmation feedback
+        let banner = UINotificationFeedbackGenerator()
+        banner.notificationOccurred(.success)
+        
+        // Dismiss this view after a short delay to allow the haptic feedback to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Dismiss the settings view
+            dismiss()
+            
+            // The RootView will automatically show the AuthView since the user is now signed out
+        }
     }
 }
 

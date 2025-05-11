@@ -6,15 +6,28 @@ import Combine
 
 struct MainTabView: View {
     @EnvironmentObject private var networkMonitor: NetworkMonitor
-    @StateObject private var mapViewModel = MapViewModel()
+    @EnvironmentObject private var authState: AuthState
+    @StateObject private var mapViewModel: MapViewModel
+    @State private var showingTutorial = false
+    
+    // Custom init to pass AuthState to MapViewModel
+    init() {
+        // Initialize mapViewModel using the shared AuthState instance.
+        // This assumes AuthState.shared is available and configured when MainTabView is created.
+        // If authState EnvironmentObject is preferred, a different pattern is needed (e.g. view model factory or .onAppear configuration)
+        _mapViewModel = StateObject(wrappedValue: MapViewModel(authState: AuthState.shared))
+    }
     
     var body: some View {
+        // Main map content
         MapContentView()
             .environmentObject(mapViewModel)
-            .environmentObject(networkMonitor)
             .preferredColorScheme(.dark)
             .alert("Location Error", isPresented: $mapViewModel.showAlert) {
-                Button("OK", role: .cancel) { }
+                Button("OK", role: .cancel) {
+                    // Call alertDismissed when alert is dismissed
+                    mapViewModel.alertDismissed()
+                }
             } message: {
                 Text(mapViewModel.alertMessage)
             }
@@ -24,12 +37,95 @@ struct MainTabView: View {
             .sheet(isPresented: $mapViewModel.showingHelp) {
                 HelpView()
             }
+            .sheet(item: $mapViewModel.reportStep) { _ in
+                ReportFlowView(viewModel: mapViewModel)
+            }
+            .onAppear {
+                // Check if we should show the tutorial (for anonymous users or first-time users)
+                checkTutorialState()
+                mapViewModel.ensureInitialPermissionPrompt()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowTutorialOverlay"))) { _ in
+                // Direct trigger from settings page
+                print("MainTabView: Received ShowTutorialOverlay notification")
+                presentTutorial()
+            }
+            // No longer using SwiftUI presentation for the tutorial
+            // Instead, using direct UIKit presentation for reliability
+    }
+    
+    /// Checks whether tutorial should be shown and presents it if needed
+    private func checkTutorialState() {
+        // Debug: Print authentication state
+        let isAnonymousUser = authState.currentUser?.isAnonymous ?? false
+        print("AUTH DEBUG: isAuthenticated = \(authState.isAuthenticated), isAnonymous = \(isAnonymousUser)")
+        print("AUTH DEBUG: CurrentUser = \(String(describing: authState.currentUser))")
+        
+        var shouldShowTutorial = false
+        
+        // For anonymous users, always show tutorial
+        if isAnonymousUser {
+            print("AUTH DEBUG: User is anonymous, showing tutorial")
+            shouldShowTutorial = true
+        }
+        
+        // For email-authenticated users, check if they've seen it before
+        else if authState.isAuthenticated {
+            let hasSeenTutorial = UserDefaults.standard.bool(forKey: "hasSeenTutorial")
+            print("AUTH DEBUG: User is authenticated, hasSeenTutorial = \(hasSeenTutorial)")
+            if !hasSeenTutorial {
+                shouldShowTutorial = true
+                // Will mark as seen after tutorial completes
+            }
+        }
+        
+        // Present tutorial after a short delay if needed
+        if shouldShowTutorial {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                presentTutorial()
+            }
+        }
+        
+        // For testing: Uncomment to force tutorial display
+        // DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { presentTutorial() }
+    }
+    
+    /// Presents the tutorial using UIKit for guaranteed visibility
+    private func presentTutorial() {
+        // Find the current active window scene
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else {
+            print("Tutorial Error: Could not find root view controller")
+            return
+        }
+        
+        // Find the topmost presented controller
+        var topController = rootVC
+        while let presentedVC = topController.presentedViewController {
+            topController = presentedVC
+        }
+        
+        // Create and present the tutorial
+        let tutorialVC = TutorialViewController {
+            // Called when tutorial is dismissed
+            print("Tutorial was dismissed")
+            
+            // For email users, mark tutorial as seen after viewing
+            if !(self.authState.currentUser?.isAnonymous ?? true) {
+                UserDefaults.standard.set(true, forKey: "hasSeenTutorial")
+            }
+        }
+        
+        topController.present(tutorialVC, animated: true) {
+            print("Tutorial presented successfully")
+        }
     }
 }
 
 struct MapContentView: View {
     @EnvironmentObject private var mapViewModel: MapViewModel
     @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @EnvironmentObject private var authState: AuthState
     @State private var showingSettings = false
     @State private var showingProfile = false
     @State private var showingTermsOfService = false
@@ -54,27 +150,14 @@ struct MapContentView: View {
         GeometryReader { geometry in
             ZStack {
                 // MapView should be the background with nothing behind it
-                MapView(viewModel: mapViewModel)
+                MapContentWrapper(viewModel: mapViewModel)
                     .edgesIgnoringSafeArea(.all)
                     .preferredColorScheme(.dark)
-                    .onAppear {
-                        // Debug alert for location permissions and map visibility
-                        print("DEBUG: MainTabView appeared - Adding debug info")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            // Instead of directly checking CLLocationManager, use the MapViewModel
-                            // which already has a properly configured location manager delegate
-                            print("DEBUG: Location authorized: \(mapViewModel.isLocationAuthorized)")
-                            // Don't call CLLocationManager.locationServicesEnabled() directly
-                            // This can cause UI unresponsiveness
-                            print("DEBUG: Location services status being monitored by MapViewModel")
-                        }
-                    
-                        // Trigger centralized permission flow
-                        mapViewModel.checkAndRequestLocationPermission()
-                    }
                 
+                // Custom location permission overlay removed. The native system prompt will handle first-time requests. After denial, the user must enable permissions in Settings.
+
                 VStack(spacing: 0) {
-                    // Top Banner Area - Reduced overall top padding
+                    // Top Banner Area - Restoring original layout
                     ZStack {
                         // Background "DON'T PULL UP" text
                         Text("DON'T PULL UP")
@@ -133,15 +216,21 @@ struct MapContentView: View {
                                 .rotationEffect(.degrees(-15))
                         }
                     }
-                    // Position banner directly under the dynamic island
-                    .padding(.top, geometry.safeAreaInsets.top - 35) // Significant negative adjustment to position right under dynamic island
+                    // Dynamic top padding: keep banner clear of the status bar on small devices
+                    .padding(.top, {
+                        // On very tall phones keep the original offset, otherwise lift it
+                        let baseOffset = geometry.size.height > 750 ? -35.0 : -20.0
+                        // Never let it overlap the status bar → minimum 4-pt gap
+                        return max(4, geometry.safeAreaInsets.top + baseOffset)
+                    }())
 
                     Spacer() // Pushes filters/bottom controls down
                     
                     // Right side indicators
                     HStack {
                         Spacer()
-                        VStack(spacing: 20) {
+                        // Dynamic spacing relative to screen height
+                        VStack(spacing: geometry.size.height * 0.025) {
                             // Indicator buttons
                             indicatorButton(emoji: "📢", action: {
                                 hapticImpact.impactOccurred()
@@ -165,32 +254,37 @@ struct MapContentView: View {
                             
                             Spacer()
                             
-                            // Zoom controls
+                            // Responsive zoom button size based on screen width
+                            let zoomSize = max(40, geometry.size.width * 0.11)
                             Button(action: {
                                 hapticImpact.impactOccurred()
+                                // Use the enhanced zoom in function
                                 mapViewModel.zoomIn()
                             }) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(.white)
-                                    .frame(width: 40, height: 40)
+                                    .frame(width: zoomSize, height: zoomSize)
                                     .background(Color.black.opacity(0.6))
                                     .clipShape(Circle())
                             }
                             
                             Button(action: {
                                 hapticImpact.impactOccurred()
+                                // Use the enhanced zoom out function
                                 mapViewModel.zoomOut()
                             }) {
                                 Image(systemName: "minus")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(.white)
-                                    .frame(width: 40, height: 40)
+                                    .frame(width: zoomSize, height: zoomSize)
                                     .background(Color.black.opacity(0.6))
                                     .clipShape(Circle())
                             }
                         }
                         .padding(.trailing, 16)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 8) // keep above Home bar
+                        .frame(maxHeight: .infinity, alignment: .top)
                     }
                     
                     Spacer()
@@ -224,13 +318,14 @@ struct MapContentView: View {
                         // Center on location button
                         toolbarButton(systemName: "location", action: {
                             hapticImpact.impactOccurred()
-                            mapViewModel.centerOnUserLocation()
+                            // Use tight zoom for better pin placement accuracy
+                            mapViewModel.zoomToUserTight()
                         })
                         
-                        // NEW: Map type toggle button
-                        toolbarButton(systemName: mapViewModel.mapType == .standard ? "map.fill" : "globe.americas.fill", action: {
+                        // Map type cycle button - cycles through all map types
+                        toolbarButton(systemName: mapViewModel.mapTypeIcon(), action: {
                             hapticImpact.impactOccurred()
-                            mapViewModel.toggleMapType()
+                            mapViewModel.cycleMapType()
                         })
                         
                         // Edit mode toggle button
@@ -252,6 +347,13 @@ struct MapContentView: View {
                     .padding(.bottom, geometry.safeAreaInsets.bottom)
                 }
             }
+            .onChange(of: authState.isAuthenticated) { isAuthenticated in
+                if !isAuthenticated {
+                    print("[MapContentView] authState.isAuthenticated changed to false. Dismissing profile and settings sheets.")
+                    showingProfile = false
+                    showingSettings = false
+                }
+            }
         }
         // Listen for notification events using onReceive
         .onReceive(termsOfServicePublisher) { _ in
@@ -262,9 +364,11 @@ struct MapContentView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .environmentObject(authState)
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
+                .environmentObject(authState)
         }
         .sheet(isPresented: $showingTermsOfService) {
             // Present the dedicated TermsOfServiceView

@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import Firebase
+import CoreLocation
 
 /// This file establishes the main module naming and types
 /// with explicit cross-references to avoid circular dependencies

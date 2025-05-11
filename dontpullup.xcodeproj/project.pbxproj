@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1E1FEDFB2DC95C77006F88D9 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1E1FEDFA2DC95C77006F88D9 /* FirebaseCore */; };
 		1EDE62F22DC739D000B165D7 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 1EDE62F12DC739D000B165D7 /* KeychainAccess */; };
 		1EDE62F52DC73A0E00B165D7 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 1EDE62F42DC73A0E00B165D7 /* FirebaseAuth */; };
 		1EDE62F72DC73A0E00B165D7 /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 1EDE62F62DC73A0E00B165D7 /* FirebaseDatabase */; };
@@ -23,9 +24,9 @@
 		1EDE62FC2DC73CC500B165D7 /* Exceptions for "Dontpullup" folder in "Dontpullup" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Authentication/AuthenticationManager.swift,
-				Authentication/AuthState.swift,
 				Info.plist,
+				Resources/AuthenticationManager.swift,
+				Resources/MapStyles/default.csv,
 				Views/AuthStateView.swift,
 			);
 			target = 1E0850F62DC7325B0060E683 /* Dontpullup */;
@@ -52,6 +53,7 @@
 				1EDE62F92DC73A0E00B165D7 /* FirebaseFirestore in Frameworks */,
 				1EDE62FE2DC73D4400B165D7 /* FirebaseAnalytics in Frameworks */,
 				1EDE62F22DC739D000B165D7 /* KeychainAccess in Frameworks */,
+				1E1FEDFB2DC95C77006F88D9 /* FirebaseCore in Frameworks */,
 				1EDE62FB2DC73A0E00B165D7 /* FirebaseStorage in Frameworks */,
 				1EDE62F52DC73A0E00B165D7 /* FirebaseAuth in Frameworks */,
 			);
@@ -102,6 +104,7 @@
 				1EDE62F82DC73A0E00B165D7 /* FirebaseFirestore */,
 				1EDE62FA2DC73A0E00B165D7 /* FirebaseStorage */,
 				1EDE62FD2DC73D4400B165D7 /* FirebaseAnalytics */,
+				1E1FEDFA2DC95C77006F88D9 /* FirebaseCore */,
 			);
 			productName = Dontpullup;
 			productReference = 1E0850F72DC7325B0060E683 /* Dontpullup.app */;
@@ -296,7 +299,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7DNT8RZUL;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Dontpullup/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Don't pull up, On Grandma!";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -307,7 +313,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dontpullup;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -329,7 +335,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U7DNT8RZUL;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/Dontpullup/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Don't pull up, On Grandma!";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -340,7 +349,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dontpullup;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -396,6 +405,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1E1FEDFA2DC95C77006F88D9 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FirebaseCore;
+		};
 		1EDE62F12DC739D000B165D7 /* KeychainAccess */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 1EDE62F02DC739D000B165D7 /* XCRemoteSwiftPackageReference "KeychainAccess" */;
