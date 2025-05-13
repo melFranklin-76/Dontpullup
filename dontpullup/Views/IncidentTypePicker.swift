@@ -143,7 +143,7 @@ class VideoProcessor {
     
     func processVideo(_ result: PHPickerResult) async {
         do {
-            let url = try await result.itemProvider.loadFileRepresentation(for: .movie)
+            let url = try await loadMovie(from: result.itemProvider)
             
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
             
@@ -193,7 +193,7 @@ class VideoDelegateAdapter: NSObject, PHPickerViewControllerDelegate {
         // Create a continuation to bridge between sync and async
         let _ = Task {
             do {
-                let url = try await result.itemProvider.loadFileRepresentation(for: .movie)
+                let url = try await loadMovie(from: result.itemProvider)
                 
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
                 
@@ -217,4 +217,18 @@ class VideoDelegateAdapter: NSObject, PHPickerViewControllerDelegate {
     }
 }
 
-// MARK: - Video loading (iOS 16+ uses async API directly) 
+// MARK: - Video loading (iOS 16+ uses async API directly)
+
+// MARK: - ItemProvider Compatibility helper (bridges older callback API)
+
+private func loadMovie(from provider: NSItemProvider) async throws -> URL {
+    try await withCheckedThrowingContinuation { cont in
+        _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
+            if let url {
+                cont.resume(returning: url)
+            } else {
+                cont.resume(throwing: error ?? URLError(.cannotOpenFile))
+            }
+        }
+    }
+}
