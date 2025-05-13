@@ -453,21 +453,20 @@ struct MainTabView_Previews: PreviewProvider {
 
 // MARK: - Full Screen or Sheet Helper
 extension View {
-    /// Presents HelpView as a full screen cover on iOS14+ and fallback to sheet on earlier versions, with full screen coverage.
+    /// Presents HelpView as a full screen cover on iOS16+
     @ViewBuilder
     func fullScreenOrSheet<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
-        if #available(iOS 14.0, *) {
-            fullScreenCover(isPresented: isPresented) {
-                content()
-                    .edgesIgnoringSafeArea(.all)
-            }
-        } else {
-            // For iOS 13, use sheet but force max height
-            sheet(isPresented: isPresented) {
-                content()
-                    .frame(maxHeight: .infinity) // Encourage full height
-                    .edgesIgnoringSafeArea(.all) // Still ignore safe area within sheet
-            }
+        fullScreenCover(isPresented: isPresented) {
+            content()
+                .edgesIgnoringSafeArea(.all)
         }
+        /*
+        // Legacy fallback for iOS 13 retained for reference; with deployment target 16 this will never compile.
+        sheet(isPresented: isPresented) {
+            content()
+                .frame(maxHeight: .infinity) // Encourage full height
+                .edgesIgnoringSafeArea(.all) // Still ignore safe area within sheet
+        }
+        */
     }
-} 
+}

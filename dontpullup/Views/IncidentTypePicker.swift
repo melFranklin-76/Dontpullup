@@ -215,4 +215,6 @@ class VideoDelegateAdapter: NSObject, PHPickerViewControllerDelegate {
             }
         }
     }
-} 
+}
+
+// MARK: - Video loading (iOS 16+ uses async API directly) 
