@@ -5,6 +5,9 @@ struct ProfileView: View {
     @EnvironmentObject private var authState: AuthState
     @Environment(\.dismiss) private var dismiss
     @State private var showSignOutConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var showDeletionError = false
+    @State private var deletionErrorMessage = ""
     
     var body: some View {
         NavigationView {
@@ -78,6 +81,20 @@ struct ProfileView: View {
                                 .cornerRadius(10)
                         }
                         .padding(.horizontal, 24)
+                        
+                        // Delete account button
+                        Button(action: {
+                            showDeleteAccountConfirmation = true
+                        }) {
+                            Text("Delete Account")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.red.opacity(0.6))
+                                .cornerRadius(10)
+                        }
+                        .padding(.horizontal, 24)
                         .padding(.bottom, 40) // More padding at bottom
                     }
                     .padding(.horizontal)
@@ -101,8 +118,50 @@ struct ProfileView: View {
             } message: {
                 Text("Are you sure you want to sign out?")
             }
+            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete Account", role: .destructive) {
+                    deleteUserAccount()
+                }
+            } message: {
+                Text("Are you sure you want to permanently delete your account? This action cannot be undone and all your data will be removed.")
+            }
+            .alert("Account Deletion Error", isPresented: $showDeletionError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deletionErrorMessage)
+            }
         }
         .navigationViewStyle(.stack)
+    }
+    
+    private func deleteUserAccount() {
+        guard Auth.auth().currentUser != nil else {
+            deletionErrorMessage = "No user is currently signed in"
+            showDeletionError = true
+            return
+        }
+        
+        // Use AuthState to delete the account
+        authState.deleteAccount { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    // Dismiss the profile view after successful deletion
+                    dismiss()
+                case .failure(let error):
+                    // Handle errors
+                    let nserror = error as NSError
+                    if nserror.domain == AuthErrorDomain && 
+                       nserror.code == AuthErrorCode.requiresRecentLogin.rawValue {
+                        deletionErrorMessage = "For security, please sign out and sign in again before deleting your account"
+                    } else {
+                        deletionErrorMessage = error.localizedDescription
+                    }
+                    showDeletionError = true
+                }
+            }
+        }
     }
     
     private var userName: String {

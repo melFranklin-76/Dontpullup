@@ -109,6 +109,7 @@ class MapViewModel: NSObject, ObservableObject {
     
     // MARK: - Zoom helpers
     func zoomIn() {
+        print("[MapViewModel] Zoom in requested")
         var newRegion = self.region // Start with the current actual region
 
         var latDelta = newRegion.span.latitudeDelta * 0.5
@@ -118,14 +119,22 @@ class MapViewModel: NSObject, ObservableObject {
         lonDelta = max(lonDelta, minSpanDelta)
 
         newRegion.span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        // The center remains the same as self.region.center
-        newRegion.center = self.region.center
-
-        self.region = newRegion     // Update the main region
-        self.mapRegion = newRegion  // Trigger view update
+        
+        print("[MapViewModel] Setting zoom region from \(self.region.span.latitudeDelta) to \(newRegion.span.latitudeDelta)")
+        // Important: Set both region and mapRegion for proper updates
+        self.region = newRegion
+        
+        // Force UI update by explicitly setting a new region
+        DispatchQueue.main.async {
+            self.mapRegion = MKCoordinateRegion(
+                center: newRegion.center,
+                span: newRegion.span
+            )
+        }
     }
     
     func zoomOut() {
+        print("[MapViewModel] Zoom out requested")
         var newRegion = self.region // Start with the current actual region
 
         var latDelta = newRegion.span.latitudeDelta * 2
@@ -135,47 +144,43 @@ class MapViewModel: NSObject, ObservableObject {
         lonDelta = min(lonDelta, maxSpanDelta)
 
         newRegion.span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        // The center remains the same as self.region.center
-        newRegion.center = self.region.center
         
-        self.region = newRegion     // Update the main region
-        self.mapRegion = newRegion  // Trigger view update
+        print("[MapViewModel] Setting zoom region from \(self.region.span.latitudeDelta) to \(newRegion.span.latitudeDelta)")
+        // Important: Set both region and mapRegion for proper updates
+        self.region = newRegion
+        
+        // Force UI update by explicitly setting a new region
+        DispatchQueue.main.async {
+            self.mapRegion = MKCoordinateRegion(
+                center: newRegion.center,
+                span: newRegion.span
+            )
+        }
     }
     
-    /// Centers the map on user location once, without enabling tracking mode
+    @MainActor
     func centerOnUserLocation() {
-        // If we're not authorized, request permission and prepare to center later
-        if !isLocationAuthorized {
-            shouldCenterAfterAuthorization = true
-            requestLocationPermission()
-            return
-        }
-        
-        // If we don't have a location yet, request a one-time fix
-        if userLocation == nil {
-            print("[MapViewModel] Center button tapped - requesting one-time location")
-            locationManager.requestLocation()
-            // The didUpdateLocations delegate will handle centering when location arrives
-            return
-        }
-        
-        // If we have a location, center on it
-        guard let location = userLocation else {
+        guard let userLocation = userLocation else {
             showAlert = true
             alertMessage = "Unable to determine your location"
             return
         }
         
-        let pinDropLimitMeters = 200 * 0.3048
-        let spanDelta = pinDropLimitMeters / 111000 * 2.5
+        print("[MapViewModel] Centering on user location: \(userLocation.coordinate)")
         
         let newCenteredRegion = MKCoordinateRegion(
-            center: location.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: spanDelta, longitudeDelta: spanDelta)
+            center: userLocation.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.0011, longitudeDelta: 0.0011)
         )
-        self.region = newCenteredRegion      // Update the ViewModel's main region state
-        self.mapRegion = newCenteredRegion   // Signal the MapView to update
-        // Center without enabling tracking
+        
+        // Update both region and mapRegion for consistent state
+        self.region = newCenteredRegion
+        
+        // Force UI update by explicitly setting a new region
+        self.mapRegion = MKCoordinateRegion(
+            center: userLocation.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.0011, longitudeDelta: 0.0011)
+        )
     }
     
     /// Ensures that a usable location is available within a short timeout.
@@ -355,6 +360,13 @@ class MapViewModel: NSObject, ObservableObject {
     
     func clearPendingData() {
         Task { @MainActor in
+            // Only clear if not in the process of handling another operation
+            if !uploadProgress.isZero && uploadProgress < 1.0 {
+                print("[MapViewModel] Not clearing pending data - upload in progress: \(uploadProgress)")
+                return
+            }
+            
+            print("[MapViewModel] Clearing pending operation data")
             pendingCoordinate = nil
             pendingVideoData = nil
             uploadProgress = 0
@@ -611,7 +623,54 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     private func loadPins() {
-        // TODO: Implement pin loading from Firestore
+        print("[MapViewModel] Loading pins from Firestore")
+        db.collection("pins").addSnapshotListener { [weak self] snapshot, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("[MapViewModel] Error loading pins: \(error.localizedDescription)")
+                self.showError("Failed to load pins: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let documents = snapshot?.documents else {
+                print("[MapViewModel] No pins found")
+                return
+            }
+            
+            print("[MapViewModel] Found \(documents.count) pins")
+            
+            Task { @MainActor in
+                let loadedPins = documents.compactMap { document -> Pin? in
+                    let data = document.data()
+                    
+                    guard let idString = data["id"] as? String,
+                          let latitudeValue = data["latitude"] as? Double,
+                          let longitudeValue = data["longitude"] as? Double,
+                          let typeString = data["type"] as? String,
+                          let userIdString = data["userId"] as? String else {
+                        print("[MapViewModel] Invalid pin data in document \(document.documentID)")
+                        return nil
+                    }
+                    
+                    let coordinate = CLLocationCoordinate2D(latitude: latitudeValue, longitude: longitudeValue)
+                    let videoURL = data["videoURL"] as? String ?? ""
+                    
+                    let incidentType = IncidentType.fromFirestoreType(typeString)
+                    
+                    return Pin(
+                        id: idString,
+                        coordinate: coordinate,
+                        incidentType: incidentType,
+                        videoURL: videoURL,
+                        userId: userIdString
+                    )
+                }
+                
+                self.pins = loadedPins
+                print("[MapViewModel] Successfully loaded \(loadedPins.count) pins")
+            }
+        }
     }
     
     @MainActor
@@ -679,17 +738,22 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     func dropPinWithVideo(for incidentType: IncidentType, videoURL: URL) async throws {
+        print("[MapViewModel] Starting video upload process...")
         guard let pendingCoordinate = pendingCoordinate,
               let currentUserId = Auth.auth().currentUser?.uid else {
+            print("[MapViewModel] Missing coordinate or user ID")
             await MainActor.run {
                 showAlert = true
                 alertMessage = "Unable to drop pin. Please try again."
                 showingIncidentPicker = false
             }
-            return
+            throw NSError(domain: "MapViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing coordinate or user ID"])
         }
         
+        print("[MapViewModel] Uploading video for incident type: \(incidentType.title) at \(pendingCoordinate.latitude), \(pendingCoordinate.longitude)")
+        
         let pinId = UUID().uuidString
+        print("[MapViewModel] Generated pin ID: \(pinId)")
         
         // Upload video to Firebase Storage
         let storageRef = Storage.storage().reference().child("videos/\(pinId).mp4")
@@ -698,22 +762,32 @@ class MapViewModel: NSObject, ObservableObject {
         let metadata = StorageMetadata()
         metadata.contentType = "video/mp4"
         
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            print("[MapViewModel] Starting upload task...")
+            
             // Start the upload task
             let uploadTask = storageRef.putFile(from: videoURL, metadata: metadata)
             
             // Store handles so we can remove them later
-            var progressHandle: UInt?
-            var successHandle: UInt?
-            var failureHandle: UInt?
+            var progressHandle: String?
+            var successHandle: String?
+            var failureHandle: String?
             
             // Monitor upload progress and handle completion
             progressHandle = uploadTask.observe(.progress) { snapshot in
-                let percentComplete = Double(snapshot.progress?.completedUnitCount ?? 0) / Double(snapshot.progress?.totalUnitCount ?? 1) * 100
-                print("Upload is \(percentComplete)% complete")
+                let completedUnitCount = snapshot.progress?.completedUnitCount ?? 0
+                let totalUnitCount = snapshot.progress?.totalUnitCount ?? 1
+                let percentComplete = Double(completedUnitCount) / Double(totalUnitCount) * 100
+                print("[MapViewModel] Upload is \(percentComplete)% complete")
+                
+                Task { @MainActor in
+                    self.uploadProgress = percentComplete / 100.0
+                }
             }
             
             successHandle = uploadTask.observe(.success) { _ in
+                print("[MapViewModel] Upload task completed successfully")
+                
                 // Clean up observers
                 if let progressHandle = progressHandle {
                     uploadTask.removeObserver(withHandle: progressHandle)
@@ -725,43 +799,65 @@ class MapViewModel: NSObject, ObservableObject {
                 // Get download URL after successful upload
                 storageRef.downloadURL { url, error in
                     if let error = error {
+                        print("[MapViewModel] Failed to get download URL: \(error.localizedDescription)")
                         continuation.resume(throwing: error)
                         return
                     }
                     
                     guard let downloadURL = url else {
+                        print("[MapViewModel] Download URL is nil")
                         continuation.resume(throwing: NSError(domain: "StorageError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"]))
                         return
                     }
                     
+                    print("[MapViewModel] Got download URL: \(downloadURL.absoluteString)")
+                    
                     // Create pin data
-                    let pin = Pin(
-                        id: pinId,
-                        coordinate: pendingCoordinate,
-                        incidentType: incidentType,
-                        videoURL: downloadURL.absoluteString,
-                        userId: currentUserId
-                    )
+                    let pinData: [String: Any] = [
+                        "id": pinId,
+                        "latitude": pendingCoordinate.latitude,
+                        "longitude": pendingCoordinate.longitude,
+                        "type": incidentType.firestoreType,
+                        "videoURL": downloadURL.absoluteString,
+                        "userId": currentUserId,
+                        "timestamp": FieldValue.serverTimestamp()
+                    ]
                     
                     // Add pin to Firestore
                     let db = Firestore.firestore()
-                    do {
-                        let data = try JSONEncoder().encode(pin)
-                        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-                        db.collection("pins").document(pinId).setData(dict) { error in
-                            if let error = error {
-                                continuation.resume(throwing: error)
-                            } else {
-                                continuation.resume(returning: ())
+                    db.collection("pins").document(pinId).setData(pinData) { error in
+                        if let error = error {
+                            print("[MapViewModel] Failed to save pin to Firestore: \(error.localizedDescription)")
+                            continuation.resume(throwing: error)
+                        } else {
+                            print("[MapViewModel] Successfully saved pin to Firestore")
+                            
+                            // Update local pins array
+                            Task { @MainActor in
+                                let newPin = Pin(
+                                    id: pinId,
+                                    coordinate: pendingCoordinate,
+                                    incidentType: incidentType,
+                                    videoURL: downloadURL.absoluteString,
+                                    userId: currentUserId
+                                )
+                                
+                                self.pins.append(newPin)
+                                self.pendingCoordinate = nil
+                                self.pendingVideoData = nil
+                                self.uploadProgress = 0
+                                self.showingIncidentPicker = false
                             }
+                            
+                            continuation.resume(returning: ())
                         }
-                    } catch {
-                        continuation.resume(throwing: error)
                     }
                 }
             }
             
             failureHandle = uploadTask.observe(.failure) { snapshot in
+                print("[MapViewModel] Upload task failed")
+                
                 // Clean up observers
                 if let progressHandle = progressHandle {
                     uploadTask.removeObserver(withHandle: progressHandle)
@@ -771,7 +867,11 @@ class MapViewModel: NSObject, ObservableObject {
                 }
                 
                 if let error = snapshot.error as? NSError {
+                    print("[MapViewModel] Upload error: \(error.localizedDescription)")
                     continuation.resume(throwing: error)
+                } else {
+                    print("[MapViewModel] Unknown upload error")
+                    continuation.resume(throwing: NSError(domain: "StorageError", code: -2, userInfo: [NSLocalizedDescriptionKey: "Unknown upload error"]))
                 }
             }
         }
@@ -882,9 +982,9 @@ class MapViewModel: NSObject, ObservableObject {
         return distance <= pinDropLimit
     }
     
-    // Zoom limits (approx)
-    private let minSpanDelta: CLLocationDegrees = 0.0003  // ~30-40 m
-    private let maxSpanDelta: CLLocationDegrees = 1.0      // ~110 km
+    // Zoom constraints - aligned with MapViewConstants for consistency
+    private let minSpanDelta: CLLocationDegrees = 0.00013  // Must match MapViewConstants.minSpan
+    private let maxSpanDelta: CLLocationDegrees = 0.8      // Reasonable max zoom out, less than MapViewConstants.maxZoomDistance
     
     func savePinAndVideo(coordinate: CLLocationCoordinate2D, incidentType: IncidentType, videoData: Data, description: String, isEmergency: Bool) {
         // Check if user is anonymous before proceeding with video operations
@@ -946,7 +1046,7 @@ class MapViewModel: NSObject, ObservableObject {
 
 // MARK: - CLLocationManagerDelegate
 extension MapViewModel: CLLocationManagerDelegate {
-    @nonisolated
+    nonisolated
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         // Capture the status in the nonisolated context
         let status = manager.authorizationStatus
@@ -1004,7 +1104,7 @@ extension MapViewModel: CLLocationManagerDelegate {
         }
     }
     
-    @nonisolated
+    nonisolated
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
@@ -1015,12 +1115,17 @@ extension MapViewModel: CLLocationManagerDelegate {
             self.userLocation = location
             print("[MapViewModel] Delegate: Location updated: \(location.coordinate)")
             
-            // Determine if the region needs to be set to the user's current location.
-            // This happens if it's the first location fix, or if the map is currently
-            // showing one of the default locations (NYC or 0,0).
-            let isMapAtDefaultNYC = self.region.center.latitude == 40.7128 && self.region.center.longitude == -74.0060
-            let isMapAtDefaultEquator = self.region.center.latitude == 0 && self.region.center.longitude == 0
-            let shouldUpdateRegionToUserLocation = previousLocation == nil || isMapAtDefaultNYC || isMapAtDefaultEquator
+            // Break down complex conditions into separate variables
+            let isLatitudeNYC = self.region.center.latitude == 40.7128
+            let isLongitudeNYC = self.region.center.longitude == -74.0060
+            let isMapAtDefaultNYC = isLatitudeNYC && isLongitudeNYC
+            
+            let isLatitudeEquator = self.region.center.latitude == 0
+            let isLongitudeEquator = self.region.center.longitude == 0
+            let isMapAtDefaultEquator = isLatitudeEquator && isLongitudeEquator
+            
+            let isFirstLocationFix = previousLocation == nil
+            let shouldUpdateRegionToUserLocation = isFirstLocationFix || isMapAtDefaultNYC || isMapAtDefaultEquator
 
             if shouldUpdateRegionToUserLocation {
                 print("[MapViewModel] First location fix or map is at a default. Centering on user: \(location.coordinate)")
@@ -1042,9 +1147,10 @@ extension MapViewModel: CLLocationManagerDelegate {
                 self.shouldCenterAfterAuthorization = false
             }
             
-            // Only post notification if the location is significantly different or it's the first location
-            let shouldNotify = previousLocation == nil || 
-                               (previousLocation?.distance(from: location) ?? 0) > 1.0 // 1 meter threshold
+            // Break down notification check into separate variables
+            let isNewLocation = previousLocation == nil
+            let hasMoved = previousLocation != nil && (previousLocation!.distance(from: location) > 1.0) // 1 meter threshold
+            let shouldNotify = isNewLocation || hasMoved
             
             if shouldNotify {
                 NotificationCenter.default.post(name: Notification.Name("LocationUpdated"), object: nil)
@@ -1053,7 +1159,7 @@ extension MapViewModel: CLLocationManagerDelegate {
         }
     }
     
-    @nonisolated
+    nonisolated
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("[MapViewModel] Delegate: Failed to get location: \(error.localizedDescription)")
         Task { @MainActor in

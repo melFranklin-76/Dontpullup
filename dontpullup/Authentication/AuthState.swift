@@ -22,20 +22,7 @@ class AuthState: ObservableObject {
         authLogger.info("Initializing authentication state observer")
         shouldShowInstructions = UserDefaults.standard.bool(forKey: "shouldShowInstructions")
 
-        // TEMPORARY DEBUGGING: Force sign-out on init.
-        // This should ensure any persisted Firebase session is cleared BEFORE the first listener event
-        // might report an auto-logged-in user.
-        // The listener setup should happen AFTER this forced sign-out.
-        authLogger.info("[AuthState DEBUG] Attempting to force sign-out at the very start of init to clear any persisted Firebase user.")
-        do {
-            try Auth.auth().signOut()
-            authLogger.info("[AuthState DEBUG] Forced sign-out successful (or no user was present).")
-        } catch {
-            authLogger.error("[AuthState DEBUG] Error during initial forced sign-out: \(error.localizedDescription)")
-        }
-        // END TEMPORARY DEBUGGING
-
-        setupAuthStateListener() // Now setup the listener *after* attempting to clear any existing session.
+        setupAuthStateListener() // Setup the listener to detect existing authentication state
     }
     
     private func setupAuthStateListener() {
@@ -195,6 +182,37 @@ class AuthState: ObservableObject {
                 // UserDefaults.standard.set(true, forKey: "shouldShowInstructions")
                 // UserDefaults.standard.set(false, forKey: "allowAnonymousAccess")
                 authLogger.info("[AuthState] Synchronously updated state properties after Firebase signOut error.")
+            }
+        }
+    }
+    
+    func deleteAccount(completion: @escaping (Result<Void, Error>) -> Void) {
+        authLogger.info("[AuthState] deleteAccount() method called.")
+        guard let user = Auth.auth().currentUser else {
+            let error = NSError(domain: "AuthState", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user is currently signed in"])
+            authLogger.error("Account deletion failed: No user is signed in")
+            completion(.failure(error))
+            return
+        }
+        
+        // Delete user account from Firebase
+        user.delete { error in
+            if let error = error {
+                authLogger.error("Account deletion failed: \(error.localizedDescription)")
+                completion(.failure(error))
+                return
+            }
+            
+            // Synchronously update state properties on the main thread for immediate UI effect.
+            DispatchQueue.main.async {
+                self.currentUser = nil
+                self.isAuthenticated = false
+                self.isAnonymous = false
+                self.shouldShowInstructions = true
+                UserDefaults.standard.set(true, forKey: "shouldShowInstructions")
+                UserDefaults.standard.set(false, forKey: "allowAnonymousAccess")
+                authLogger.info("[AuthState] Account successfully deleted and state reset.")
+                completion(.success(()))
             }
         }
     }
