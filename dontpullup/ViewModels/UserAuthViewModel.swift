@@ -23,15 +23,12 @@ final class UserAuthViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            authState.signInAnonymously { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
+        do {
+            try await authState.signInAnonymouslyAsync()
+        } catch {
+            showAlert = true
+            alertMessage = error.localizedDescription
+            throw error
         }
     }
     
@@ -40,32 +37,26 @@ final class UserAuthViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            authState.signIn(email: email, password: password) { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
+        do {
+            _ = try await authState.signInAsync(email: email, password: password)
+        } catch {
+            showAlert = true
+            alertMessage = error.localizedDescription
+            throw error
         }
     }
     
-    /// Signs up with email and password
-    func signUp(email: String, password: String) async throws {
+    /// Signs up with email, password, and zip code
+    func signUp(email: String, password: String, zipCode: String) async throws {
         isLoading = true
         defer { isLoading = false }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            authState.signUp(email: email, password: password) { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
+        do {
+            _ = try await authState.signUpAsync(email: email, password: password, zipCode: zipCode)
+        } catch {
+            showAlert = true
+            alertMessage = error.localizedDescription
+            throw error
         }
     }
     

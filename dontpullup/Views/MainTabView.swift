@@ -9,6 +9,7 @@ struct MainTabView: View {
     @EnvironmentObject private var authState: AuthState
     @StateObject private var mapViewModel: MapViewModel
     @State private var showingTutorial = false
+    @State private var showingDetailedInstructions = false
     
     // Custom init to pass AuthState to MapViewModel
     init() {
@@ -23,7 +24,7 @@ struct MainTabView: View {
         MapContentView()
             .environmentObject(mapViewModel)
             .preferredColorScheme(.dark)
-            .alert("Location Error", isPresented: $mapViewModel.showAlert) {
+            .alert(mapViewModel.alertTitle ?? "Error", isPresented: $mapViewModel.showAlert) {
                 Button("OK", role: .cancel) {
                     // Call alertDismissed when alert is dismissed
                     mapViewModel.alertDismissed()
@@ -40,6 +41,17 @@ struct MainTabView: View {
             .sheet(item: $mapViewModel.reportStep) { _ in
                 ReportFlowView(viewModel: mapViewModel)
             }
+            .sheet(isPresented: $showingDetailedInstructions) {
+                DetailedInstructionsView()
+                    .onDisappear {
+                        print("Tutorial was dismissed")
+                        
+                        // For email users, mark tutorial as seen after viewing
+                        if !(self.authState.currentUser?.isAnonymous ?? true) {
+                            UserDefaults.standard.set(true, forKey: "hasSeenTutorial")
+                        }
+                    }
+            }
             .onAppear {
                 // Check if we should show the tutorial (for anonymous users or first-time users)
                 checkTutorialState()
@@ -48,10 +60,8 @@ struct MainTabView: View {
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowTutorialOverlay"))) { _ in
                 // Direct trigger from settings page
                 print("MainTabView: Received ShowTutorialOverlay notification")
-                presentTutorial()
+                showingDetailedInstructions = true
             }
-            // No longer using SwiftUI presentation for the tutorial
-            // Instead, using direct UIKit presentation for reliability
     }
     
     /// Checks whether tutorial should be shown and presents it if needed
@@ -82,42 +92,8 @@ struct MainTabView: View {
         // Present tutorial after a short delay if needed
         if shouldShowTutorial {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                presentTutorial()
+                showingDetailedInstructions = true
             }
-        }
-        
-        // For testing: Uncomment to force tutorial display
-        // DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { presentTutorial() }
-    }
-    
-    /// Presents the tutorial using UIKit for guaranteed visibility
-    private func presentTutorial() {
-        // Find the current active window scene
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootVC = windowScene.windows.first?.rootViewController else {
-            print("Tutorial Error: Could not find root view controller")
-            return
-        }
-        
-        // Find the topmost presented controller
-        var topController = rootVC
-        while let presentedVC = topController.presentedViewController {
-            topController = presentedVC
-        }
-        
-        // Create and present the tutorial
-        let tutorialVC = TutorialViewController {
-            // Called when tutorial is dismissed
-            print("Tutorial was dismissed")
-            
-            // For email users, mark tutorial as seen after viewing
-            if !(self.authState.currentUser?.isAnonymous ?? true) {
-                UserDefaults.standard.set(true, forKey: "hasSeenTutorial")
-            }
-        }
-        
-        topController.present(tutorialVC, animated: true) {
-            print("Tutorial presented successfully")
         }
     }
 }
@@ -130,6 +106,7 @@ struct MapContentView: View {
     @State private var showingProfile = false
     @State private var showingTermsOfService = false
     @State private var showingPrivacyPolicy = false
+    @State private var showingDetailedInstructions = false
     private let hapticImpact = UIImpactFeedbackGenerator(style: .medium)
     
     // State for marquee animation
@@ -193,11 +170,12 @@ struct MapContentView: View {
                         .offset(y: 5) // Adjust this offset value as needed
                         .onAppear {
                             let font = UIFont.systemFont(ofSize: 12, weight: .medium)
-                            let textWidth = marqueeText.widthOfString(usingFont: font) + (CGFloat(marqueeText.count) * 1.5)
+                            let textWidth = max(1, marqueeText.widthOfString(usingFont: font) + (CGFloat(marqueeText.count) * 1.5))
                             marqueeOffset = 0
                             shouldAnimateMarquee = true
                             // Significantly slower animation - reduced speed by another 50% (now 25% of original)
-                            withAnimation(.linear(duration: Double(textWidth / 37.5)).repeatForever(autoreverses: false)) {
+                            let duration = Double(textWidth / 37.5)
+                            withAnimation(.linear(duration: max(0.1, duration)).repeatForever(autoreverses: false)) {
                                 marqueeOffset = -textWidth
                             }
                         }
@@ -306,7 +284,7 @@ struct MapContentView: View {
                         // Help button
                         toolbarButton(systemName: "questionmark.circle", action: {
                             hapticImpact.impactOccurred()
-                            mapViewModel.showingHelp = true
+                            showingDetailedInstructions = true
                         })
                         
                         // Settings button
@@ -385,6 +363,11 @@ struct MapContentView: View {
                     .navigationBarItems(trailing: Button("Done") { showingPrivacyPolicy = false })
             }
             .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showingDetailedInstructions) {
+            // Present the new detailed instructions view
+            DetailedInstructionsView()
+                .preferredColorScheme(.dark)
         }
     }
     

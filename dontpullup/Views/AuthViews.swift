@@ -2,6 +2,8 @@ import SwiftUI
 import FirebaseAuth
 import Network
 
+// MARK: - Auth Background Modifier
+
 struct AuthBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         ZStack {
@@ -26,6 +28,8 @@ extension View {
         modifier(AuthBackgroundModifier())
     }
 }
+
+// MARK: - Main Auth View
 
 struct AuthView: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -58,11 +62,9 @@ struct AuthView: View {
                     // Top section with title and adequate spacing
                     Spacer().frame(height: geometry.safeAreaInsets.top + 40)
                     
-                    // App title (DON'T PULL UP) - REMOVED
-                    
                     // Middle section with tagline and improved spacing
-                    Text("Show us who they are\\nso we can show them who we not")
-                        .font(.custom("BlackOpsOne-Regular", size: 20))
+                    Text("Show us who they  are   so we can    show them who we not")
+                        .font(.custom("BlackOpsOne-Regular", size: 21))
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.5), radius: 3)
@@ -141,9 +143,13 @@ struct AuthView: View {
     
     private func performSignInAnonymously() {
         isLoading = true
-        authState.signInAnonymously { result in
-            isLoading = false
-            if case .failure(let error) = result {
+        Task {
+            do {
+                try await authState.signInAnonymouslyAsync()
+                isLoading = false
+                // Success will be handled by AuthState listener
+            } catch {
+                isLoading = false
                 errorMessage = error.localizedDescription
                 showError = true
             }
@@ -151,9 +157,12 @@ struct AuthView: View {
     }
 }
 
+// MARK: - Sign In View
+
 struct SignInView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var authState: AuthState
+    @State private var showProgressOverlay = false
     
     @State private var email = ""
     @State private var password = ""
@@ -195,6 +204,7 @@ struct SignInView: View {
                                     .textFieldStyle(RoundedBorderTextFieldStyle())
                                     .textContentType(.emailAddress)
                                     .autocapitalization(.none)
+                                    .keyboardType(.emailAddress)
                                     .font(.system(size: 16))
                                     .padding(.vertical, 8) // Added padding
                                 
@@ -235,13 +245,37 @@ struct SignInView: View {
                         }
                         .frame(minHeight: geometry.size.height) // Ensure scrollable area fills screen
                     }
+                    
+                    // Progress overlay
+                    if showProgressOverlay {
+                        Color.black.opacity(0.5)
+                            .edgesIgnoringSafeArea(.all)
+                            .overlay(
+                                VStack(spacing: 20) {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(1.5)
+                                    
+                                    Text("Signing in...")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                .padding(30)
+                                .background(Color(.systemGray6).opacity(0.7))
+                                .cornerRadius(15)
+                            )
+                            .transition(.opacity)
+                            .zIndex(100)
+                    }
                 }
+                .dismissKeyboardOnTapGesture() // Use our new method
             }
             .navigationBarTitle("", displayMode: .inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { isPresented = false }
                         .padding(.vertical, 8) // Increase tap target
+                        .foregroundColor(.white)
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -252,26 +286,130 @@ struct SignInView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .fixInputAssistantHeight() // Apply custom input view fix
+        .withKeyboardDismissButton() // Use our new keyboard dismiss button
     }
     
     private func performSignIn() {
+        // Show loading state
         isLoading = true
-        authState.signIn(email: email, password: password) { result in
-            isLoading = false
-            switch result {
-            case .success(_):
-                isPresented = false
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-                showError = true
+        showProgressOverlay = true
+        
+        // Dismiss keyboard first to avoid constraints issues
+        UIPlatformHelper.dismissKeyboard()
+        
+        Task {
+            do {
+                let authResult = try await authState.signInAsync(email: email, password: password)
+                print("Successfully signed in: \(authResult.uid)")
+                
+                // Small delay to ensure state has time to update
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                DispatchQueue.main.async {
+                    isLoading = false
+                    showProgressOverlay = false
+                    isPresented = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isLoading = false
+                    showProgressOverlay = false
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
             }
         }
     }
 }
 
+// MARK: - Custom ZipCode TextField with NumberPad Done Button
+
+struct ZipCodeTextField: View {
+    @Binding var text: String
+    
+    var body: some View {
+        VStack {
+            TextField("Zip Code", text: $text)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .keyboardType(.numberPad)
+                .font(.system(size: 16))
+                .padding(.vertical, 8)
+                .onChange(of: text) { newValue in
+                    // Limit to 5 digits and numbers only
+                    let filtered = newValue.filter { "0123456789".contains($0) }
+                    if filtered != newValue {
+                        text = filtered
+                    }
+                    if filtered.count > 5 {
+                        text = String(filtered.prefix(5))
+                    }
+                }
+        }
+        .overlay(
+            // Add a custom done button for number pad that's more reliable
+            VStack {
+                #if canImport(UIKit)
+                if UIResponder.isFirstResponderTextField() {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }) {
+                            Text("Done")
+                                .bold()
+                                .foregroundColor(.blue)
+                                .padding(12) // Larger tap target
+                                .background(Color.white.opacity(0.9))
+                                .cornerRadius(8)
+                                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                                .padding(5)
+                        }
+                    }
+                    .padding(.trailing, 10)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: UIResponder.isFirstResponderTextField())
+                }
+                #endif
+                Spacer()
+            }
+        )
+    }
+}
+
+// Extension to check if keyboard is shown
+extension UIResponder {
+    static var currentFirstResponder: UIResponder?
+    
+    static func isFirstResponderTextField() -> Bool {
+        #if canImport(UIKit)
+        return currentFirstResponder is UITextField
+        #else
+        return false
+        #endif
+    }
+    
+    static func findFirstResponder(in view: UIView) -> UIResponder? {
+        #if canImport(UIKit)
+        for subview in view.subviews {
+            if subview.isFirstResponder {
+                return subview
+            }
+            
+            if let responder = findFirstResponder(in: subview) {
+                return responder
+            }
+        }
+        #endif
+        return nil
+    }
+}
+
+// MARK: - Sign Up View
+
 struct SignUpView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var authState: AuthState
+    @State private var showProgressOverlay = false
     
     @State private var email = ""
     @State private var password = ""
@@ -279,13 +417,14 @@ struct SignUpView: View {
     @State private var isLoading = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var zipCode = ""
     
     var passwordsMatch: Bool {
         !password.isEmpty && password == confirmPassword
     }
     
     var isValid: Bool {
-        !email.isEmpty && passwordsMatch
+        !email.isEmpty && passwordsMatch && zipCode.count == 5 && zipCode.allSatisfy("0123456789".contains)
     }
     
     var body: some View {
@@ -322,6 +461,7 @@ struct SignUpView: View {
                                     .textFieldStyle(RoundedBorderTextFieldStyle())
                                     .textContentType(.emailAddress)
                                     .autocapitalization(.none)
+                                    .keyboardType(.emailAddress)
                                     .font(.system(size: 16))
                                     .padding(.vertical, 8) // Added padding
                                 
@@ -336,6 +476,9 @@ struct SignUpView: View {
                                     .textContentType(.newPassword)
                                     .font(.system(size: 16))
                                     .padding(.vertical, 8) // Added padding
+                                
+                                // Replace standard TextField with custom ZipCodeTextField
+                                ZipCodeTextField(text: $zipCode)
                             }
                             .padding(.horizontal, 30)
                             
@@ -380,13 +523,37 @@ struct SignUpView: View {
                         }
                         .frame(minHeight: geometry.size.height) // Ensure scrollable area fills screen
                     }
+                    
+                    // Progress overlay
+                    if showProgressOverlay {
+                        Color.black.opacity(0.5)
+                            .edgesIgnoringSafeArea(.all)
+                            .overlay(
+                                VStack(spacing: 20) {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(1.5)
+                                    
+                                    Text("Creating account...")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                .padding(30)
+                                .background(Color(.systemGray6).opacity(0.7))
+                                .cornerRadius(15)
+                            )
+                            .transition(.opacity)
+                            .zIndex(100)
+                    }
                 }
+                .dismissKeyboardOnTapGesture() // Use our new method
             }
             .navigationBarTitle("", displayMode: .inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { isPresented = false }
                         .padding(.vertical, 8) // Increase tap target
+                        .foregroundColor(.white)
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -397,6 +564,7 @@ struct SignUpView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .fixInputAssistantHeight() // Apply custom input view fix
+        .withKeyboardDismissButton() // Use our new keyboard dismiss button
     }
     
     private func performSignUp() {
@@ -405,25 +573,76 @@ struct SignUpView: View {
             showError = true
             return
         }
+        guard zipCode.count == 5 && zipCode.allSatisfy("0123456789".contains) else {
+            errorMessage = "Please enter a valid 5-digit zip code."
+            showError = true
+            return
+        }
         
+        // Show loading state
         isLoading = true
-        authState.signUp(email: email, password: password) { result in
-            isLoading = false
-            switch result {
-            case .success(_):
-                isPresented = false
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-                showError = true
+        showProgressOverlay = true
+        
+        // Dismiss keyboard first to avoid constraints issues
+        UIPlatformHelper.dismissKeyboard()
+        
+        Task {
+            do {
+                let authResult = try await authState.signUpAsync(email: email, password: password, zipCode: zipCode)
+                print("Successfully signed up: \(authResult.uid)")
+                
+                // Small delay to ensure state has time to update
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                DispatchQueue.main.async {
+                    isLoading = false
+                    showProgressOverlay = false
+                    isPresented = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isLoading = false
+                    showProgressOverlay = false
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
             }
         }
     }
 }
 
-struct AuthView_Previews: PreviewProvider {
-    static var previews: some View {
-        AuthView()
-            .environmentObject(AuthState.shared)
-            .environmentObject(NetworkMonitor())
+// MARK: - Simple Auth State View
+
+struct AuthStateView: View {
+    @StateObject private var viewModel = UserAuthViewModel()
+    
+    var body: some View {
+        VStack {
+            if viewModel.isLoading {
+                ProgressView("Signing in...")
+            } else {
+                Text("Welcome to Don't Pull Up")
+                    .font(.title)
+                    .padding()
+                
+                Button("Continue as Guest") {
+                    Task {
+                        do {
+                            try await viewModel.signInAnonymously()
+                            // Authentication success is handled by the AuthState listener
+                        } catch {
+                            // Error is handled in the view model through alerts
+                            print("Anonymous sign-in failed: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .alert("Error", isPresented: $viewModel.showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(viewModel.alertMessage)
+        }
     }
-}
+} 

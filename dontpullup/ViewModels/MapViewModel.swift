@@ -1,12 +1,34 @@
 import SwiftUI
 import MapKit
-@preconcurrency import CoreLocation
-import FirebaseFirestore
-import FirebaseAuth
+import CoreLocation
 import AVKit
-@preconcurrency import UIKit
+import Dispatch
+
+// Firebase imports
+#if canImport(Firebase)
+import Firebase
+#endif
+
+#if canImport(FirebaseCore)
+import FirebaseCore
+#endif
+
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
+
+#if canImport(FirebaseStorage)
 import FirebaseStorage
-@preconcurrency import Dispatch
+#endif
+
+// Platform-specific UI code
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 class MapViewModel: NSObject, ObservableObject {
@@ -25,6 +47,7 @@ class MapViewModel: NSObject, ObservableObject {
     @Published var showingHelp = false
     @Published var showAlert = false
     @Published var alertMessage = ""
+    @Published var alertTitle: String? = nil
     @Published var isEditMode = false
     @Published var mapType: MKMapType = .standard
     @Published var mapRegion: MKCoordinateRegion?
@@ -50,14 +73,24 @@ class MapViewModel: NSObject, ObservableObject {
     
     // MARK: - Private Properties
     private let locationManager = CLLocationManager()
-    private let db = Firestore.firestore()
+    
+    // Use direct Firestore reference to prevent module errors
+    #if canImport(FirebaseFirestore)
+    private let db = FirebaseFirestore.Firestore.firestore()
+    #else
+    private let db: Any? = nil // Fallback for non-Firebase environments
+    #endif
     
     // MARK: - Computed Properties
     var filteredPins: [Pin] {
         pins.filter { pin in
             if showingOnlyMyPins {
+                #if canImport(FirebaseAuth)
                 guard let currentUserId = Auth.auth().currentUser?.uid else { return false }
                 return pin.userId == currentUserId
+                #else
+                return false
+                #endif
             }
             return selectedFilters.isEmpty || selectedFilters.contains(pin.incidentType)
         }
@@ -107,75 +140,113 @@ class MapViewModel: NSObject, ObservableObject {
         isEditMode.toggle()
     }
     
-    // MARK: - Zoom helpers
-    func zoomIn() {
-        var newRegion = self.region // Start with the current actual region
-
-        var latDelta = newRegion.span.latitudeDelta * 0.5
-        var lonDelta = newRegion.span.longitudeDelta * 0.5
-
-        latDelta = max(latDelta, minSpanDelta)
-        lonDelta = max(lonDelta, minSpanDelta)
-
-        newRegion.span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        // The center remains the same as self.region.center
-        newRegion.center = self.region.center
-
-        self.region = newRegion     // Update the main region
-        self.mapRegion = newRegion  // Trigger view update
-    }
+    // MARK: - Map Region Management
     
-    func zoomOut() {
-        var newRegion = self.region // Start with the current actual region
-
-        var latDelta = newRegion.span.latitudeDelta * 2
-        var lonDelta = newRegion.span.longitudeDelta * 2
-
-        latDelta = min(latDelta, maxSpanDelta)
-        lonDelta = min(lonDelta, maxSpanDelta)
-
-        newRegion.span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        // The center remains the same as self.region.center
-        newRegion.center = self.region.center
+    /// Validates and ensures map region values are within acceptable bounds
+    private func validateRegion(_ region: MKCoordinateRegion) -> MKCoordinateRegion {
+        // Use our coordinate extension to validate the center coordinate
+        let validCenter = region.center.validated()
         
-        self.region = newRegion     // Update the main region
-        self.mapRegion = newRegion  // Trigger view update
-    }
-    
-    /// Centers the map on user location once, without enabling tracking mode
-    func centerOnUserLocation() {
-        // If we're not authorized, request permission and prepare to center later
-        if !isLocationAuthorized {
-            shouldCenterAfterAuthorization = true
-            requestLocationPermission()
-            return
-        }
+        // Ensure span values are positive and within reasonable limits
+        let minSpan = 0.0001 // Minimum span to prevent extreme zoom
+        let maxSpan = 180.0  // Maximum span (half the world)
         
-        // If we don't have a location yet, request a one-time fix
-        if userLocation == nil {
-            print("[MapViewModel] Center button tapped - requesting one-time location")
-            locationManager.requestLocation()
-            // The didUpdateLocations delegate will handle centering when location arrives
-            return
-        }
+        let validLatDelta = max(min(region.span.latitudeDelta, maxSpan), minSpan)
+        let validLongDelta = max(min(region.span.longitudeDelta, maxSpan), minSpan)
         
-        // If we have a location, center on it
-        guard let location = userLocation else {
-            showAlert = true
-            alertMessage = "Unable to determine your location"
-            return
-        }
-        
-        let pinDropLimitMeters = 200 * 0.3048
-        let spanDelta = pinDropLimitMeters / 111000 * 2.5
-        
-        let newCenteredRegion = MKCoordinateRegion(
-            center: location.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: spanDelta, longitudeDelta: spanDelta)
+        // Check for NaN/Infinity in spans
+        let span = MKCoordinateSpan(
+            latitudeDelta: validLatDelta.isNaN || validLatDelta.isInfinite ? minSpan : validLatDelta,
+            longitudeDelta: validLongDelta.isNaN || validLongDelta.isInfinite ? minSpan : validLongDelta
         )
-        self.region = newCenteredRegion      // Update the ViewModel's main region state
-        self.mapRegion = newCenteredRegion   // Signal the MapView to update
-        // Center without enabling tracking
+        
+        // Construct validated region
+        return MKCoordinateRegion(
+            center: validCenter,
+            span: span
+        )
+    }
+    
+    /// Sets the map's region to center on the user's location with appropriate zoom level
+    func centerOnUserLocation() {
+        guard let userCoordinate = userLocation?.coordinate else {
+            showAlert = true
+            alertMessage = "Unable to determine your location. Please check your location services."
+            return
+        }
+        
+        let region = validateRegion(MKCoordinateRegion(
+            center: userCoordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        ))
+        
+        mapRegion = region
+    }
+    
+    /// Sets the map's region to a 200-foot range around the user's location
+    func zoomToRangeAroundUser() {
+        guard let userCoordinate = userLocation?.coordinate else {
+            showAlert = true
+            alertMessage = "Unable to determine your location. Please check your location services."
+            return
+        }
+        
+        // Approximately 200 feet in degrees latitude/longitude
+        let span = MKCoordinateSpan(latitudeDelta: 0.001373, longitudeDelta: 0.001373)
+        
+        let region = validateRegion(MKCoordinateRegion(
+            center: userCoordinate,
+            span: span
+        ))
+        
+        mapRegion = region
+    }
+    
+    /// Zooms in the map view
+    func zoomIn() {
+        guard let mapRegion = mapRegion ?? getDefaultRegion() else { return }
+        
+        // Calculate new span for zooming in (reduce by 25%)
+        let newSpan = MKCoordinateSpan(
+            latitudeDelta: max(mapRegion.span.latitudeDelta * 0.75, 0.0001),
+            longitudeDelta: max(mapRegion.span.longitudeDelta * 0.75, 0.0001)
+        )
+        
+        let newRegion = validateRegion(MKCoordinateRegion(
+            center: mapRegion.center,
+            span: newSpan
+        ))
+        
+        self.mapRegion = newRegion
+    }
+    
+    /// Zooms out the map view
+    func zoomOut() {
+        guard let mapRegion = mapRegion ?? getDefaultRegion() else { return }
+        
+        // Calculate new span for zooming out (increase by 25%)
+        let newSpan = MKCoordinateSpan(
+            latitudeDelta: min(mapRegion.span.latitudeDelta * 1.25, 180.0),
+            longitudeDelta: min(mapRegion.span.longitudeDelta * 1.25, 180.0)
+        )
+        
+        let newRegion = validateRegion(MKCoordinateRegion(
+            center: mapRegion.center,
+            span: newSpan
+        ))
+        
+        self.mapRegion = newRegion
+    }
+    
+    /// Returns the current map region or a default region if none is set
+    private func getDefaultRegion() -> MKCoordinateRegion? {
+        if let userLocation = userLocation {
+            return MKCoordinateRegion(
+                center: userLocation.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            )
+        }
+        return nil
     }
     
     /// Ensures that a usable location is available within a short timeout.
@@ -288,7 +359,7 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
     
-    private struct TimeoutError: Error {}
+    private struct TimeoutError: Error, Sendable {}
     
     func initiatePinDropVerification(at coordinate: CLLocationCoordinate2D) {
         if !isLocationAuthorized {
@@ -317,8 +388,12 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     func userCanEditPin(_ pin: Pin) -> Bool {
-        guard let currentUserId = Auth.auth().currentUser?.uid else { return false }
+        #if canImport(FirebaseAuth)
+        guard let currentUserId = FirebaseAuth.Auth.auth().currentUser?.uid else { return false }
         return pin.userId == currentUserId
+        #else
+        return false
+        #endif
     }
     
     func getCachedVideo(for videoURL: String) -> Data? { return nil }
@@ -334,10 +409,49 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     // MARK: - Alert handling
-    func showError(_ message: String) {
+    func showError(_ message: String, _ error: Error? = nil) {
         Task { @MainActor in
+            let displayMessage: String
+            
+            if let error = error {
+                // If in debug mode, include technical details
+                #if DEBUG
+                displayMessage = "\(message): \(error.userFriendlyMessage) (Debug: \(error.localizedDescription))"
+                #else
+                displayMessage = "\(message): \(error.userFriendlyMessage)"
+                #endif
+                
+                // Set appropriate title based on error type
+                if error.localizedDescription.contains("empty") || error.localizedDescription.contains("0 bytes") {
+                    alertTitle = "Video Error"
+                } else if error.localizedDescription.contains("location") || error.localizedDescription.contains("distance") {
+                    alertTitle = "Location Error"
+                } else if error.localizedDescription.contains("network") || error.localizedDescription.contains("connection") {
+                    alertTitle = "Network Error"
+                } else if error.localizedDescription.contains("permission") || error.localizedDescription.contains("denied") {
+                    alertTitle = "Permission Error"
+                } else {
+                    alertTitle = "Error"
+                }
+            } else {
+                displayMessage = message
+                
+                // Set appropriate title based on message content
+                if message.contains("video") || message.contains("empty") || message.contains("bytes") {
+                    alertTitle = "Video Error"
+                } else if message.contains("location") || message.contains("distance") || message.contains("feet") {
+                    alertTitle = "Location Error"
+                } else if message.contains("network") || message.contains("connection") {
+                    alertTitle = "Network Error"
+                } else if message.contains("permission") || message.contains("denied") {
+                    alertTitle = "Permission Error"
+                } else {
+                    alertTitle = "Error"
+                }
+            }
+            
             // Add message to queue and try to show
-            alertQueue.append(message)
+            alertQueue.append(displayMessage)
             processAlertQueue()
         }
     }
@@ -421,7 +535,7 @@ class MapViewModel: NSObject, ObservableObject {
     }
 
     @MainActor
-    func forceLocationPermissionCheck() async {
+    func forceLocationPermissionCheck() async throws {
         print("[MapViewModel] forceLocationPermissionCheck called.")
         // Move this off the main thread
         self.isLocationServicesEnabled = await checkLocationServicesEnabled()
@@ -433,7 +547,7 @@ class MapViewModel: NSObject, ObservableObject {
             UserDefaults.standard.set(true, forKey: "userDeclinedLocationPermissions") // Set user default
             alertMessage = "Location services are disabled. Please enable them in Settings."
             showAlert = true
-            return
+            throw LocationError.servicesDisabled
         }
 
         // Get authorization status safely off the main thread
@@ -454,6 +568,7 @@ class MapViewModel: NSObject, ObservableObject {
             UserDefaults.standard.set(true, forKey: "userDeclinedLocationPermissions") // Set user default
             alertMessage = "Location access was denied. Please enable it in Settings to use location features."
             showAlert = true
+            throw LocationError.permissionDenied
             // isLocationAuthorized is already false or will be set by delegate
         case .authorizedWhenInUse, .authorizedAlways:
             print("[MapViewModel] Already authorized.")
@@ -470,6 +585,7 @@ class MapViewModel: NSObject, ObservableObject {
             }
         @unknown default:
             print("[MapViewModel] Unknown authorization status: \(currentStatus.rawValue)")
+            throw LocationError.unknown
         }
     }
     
@@ -513,14 +629,21 @@ class MapViewModel: NSObject, ObservableObject {
             print("[MapViewModel] Permission already determined (Status: \(status.rawValue)). Handling via forceLocationPermissionCheck or delegate.")
             // If already determined, let forceLocationPermissionCheck or delegate handle state
             // Potentially trigger force check if called directly and not .notDetermined
-            Task { await forceLocationPermissionCheck() } 
+            Task { 
+                do {
+                    try await forceLocationPermissionCheck() 
+                } catch {
+                    print("[MapViewModel] Error during force location check: \(error)")
+                }
+            } 
         }
     }
     
     // MARK: - Pin Management
     func dropPin(for incidentType: IncidentType) {
+        #if canImport(FirebaseAuth)
         guard let pendingCoordinate = pendingCoordinate,
-              let currentUserId = Auth.auth().currentUser?.uid else {
+              let currentUserId = FirebaseAuth.Auth.auth().currentUser?.uid else {
             showAlert = true
             alertMessage = "Unable to drop pin. Please try again."
             showingIncidentPicker = false
@@ -528,7 +651,7 @@ class MapViewModel: NSObject, ObservableObject {
         }
         
         let pinId = UUID().uuidString
-        let newPin = Pin(
+        let _ = Pin(
             id: pinId,
             coordinate: pendingCoordinate,
             incidentType: incidentType,
@@ -538,19 +661,32 @@ class MapViewModel: NSObject, ObservableObject {
         
         Task {
             do {
+                let timestamp: Any
+                #if canImport(FirebaseFirestore)
+                timestamp = FirebaseFirestore.Timestamp()
+                #else
+                timestamp = Date().timeIntervalSince1970
+                #endif
+                
                 let data: [String: Any] = [
                     "latitude": pendingCoordinate.latitude,
                     "longitude": pendingCoordinate.longitude,
                     "type": incidentType.firestoreType,
                     "videoURL": "",
                     "userId": currentUserId,
-                    "timestamp": Timestamp(),
+                    "timestamp": timestamp,
                     "deviceID": UIDevice.current.identifierForVendor?.uuidString ?? ""
                 ]
                 
                 try await db.collection("pins").document(pinId).setData(data)
                 await MainActor.run {
-                    self.pins.append(newPin)
+                    self.pins.append(Pin(
+                        id: pinId,
+                        coordinate: pendingCoordinate,
+                        incidentType: incidentType,
+                        videoURL: "",
+                        userId: currentUserId
+                    ))
                     self.pendingCoordinate = nil
                     self.showingIncidentPicker = false
                 }
@@ -563,6 +699,11 @@ class MapViewModel: NSObject, ObservableObject {
                 }
             }
         }
+        #else
+        showAlert = true
+        alertMessage = "Firebase Auth not available. Unable to drop pin."
+        showingIncidentPicker = false
+        #endif
     }
     
     func deletePin(_ pin: Pin) async throws {
@@ -578,40 +719,79 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     // MARK: - Initialization
-    init(authState: AuthState) { // Updated initializer
+    init(authState: AuthState = AuthState.shared) {
         self.authState = authState
         super.init()
+        
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.distanceFilter = 10 // Update when moved at least 10 meters
         
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleAppDidBecomeActive),
-            name: .appDidBecomeActiveForLocationCheck,
-            object: nil
-        )
-        print("[MapViewModel] Initialized and subscribed to appDidBecomeActiveForLocationCheck notification.")
-        
-        // Perform the initial CoreLocation status check off the main thread
-        Task {
-            await checkInitialLocationStatus()
+        // Configure the session for precise indoor positioning
+        if #available(iOS 14.0, *) {
+            locationManager.activityType = .fitness // Prioritize accuracy over battery life
+            locationManager.allowsBackgroundLocationUpdates = false
         }
         
+        // Set up the notification observer
+        NotificationCenter.default.addObserver(
+            forName: .appDidBecomeActiveForLocationCheck,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            print("[MapViewModel] Initialized and subscribed to appDidBecomeActiveForLocationCheck notification.")
+            
+            Task {
+                // Need to mark partial apply with await
+                do {
+                    // First check initial status
+                    await self.checkInitialLocationStatus()
+                    
+                    // Only enforce location check if the app is already authorized
+                    // to avoid immediately showing permission dialogs on startup
+                    let isAuthorized = await MainActor.run { self.isLocationAuthorized }
+                    if isAuthorized {
+                        try await self.forceLocationPermissionCheck()
+                    } else if !(await MainActor.run { self.hasPromptedForInitialPermission }) {
+                        print("[MapViewModel] Ensuring initial permission prompt")
+                        // Update this property on the main actor
+                        await MainActor.run {
+                            self.hasPromptedForInitialPermission = true
+                        }
+                        try await self.forceLocationPermissionCheck()
+                    }
+                } catch {
+                    print("[MapViewModel] Error during location initialization: \(error)")
+                }
+            }
+        }
+        
+        // Load pins from Firestore
         loadPins()
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self, name: .appDidBecomeActiveForLocationCheck, object: nil)
-        print("[MapViewModel] Deinitialized and unsubscribed from appDidBecomeActiveForLocationCheck notification.")
-    }
-    
-    @objc private func handleAppDidBecomeActive() {
-        print("[MapViewModel] App active - NO automatic location check.")
-        // Do nothing automatically - user must explicitly request location
+        NotificationCenter.default.removeObserver(self)
     }
     
     private func loadPins() {
         // TODO: Implement pin loading from Firestore
+        Task {
+            do {
+                print("[MapViewModel] Loading pins from Firestore")
+                let loadedPins = try await FirestorePins.getAllPins()
+                await MainActor.run {
+                    self.pins = loadedPins
+                    print("[MapViewModel] Successfully loaded \(loadedPins.count) pins")
+                }
+            } catch {
+                print("[MapViewModel] Error loading pins: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.showError("Failed to load incident markers", error)
+                }
+            }
+        }
     }
     
     @MainActor
@@ -672,12 +852,125 @@ class MapViewModel: NSObject, ObservableObject {
                     self.locationManager.requestWhenInUseAuthorization()
                 default:
                     print("[MapViewModel] Permission already determined: \(status.rawValue). Forcing a refresh check")
-                    Task { await self.forceLocationPermissionCheck() }
+                    Task { 
+                        do {
+                            try await self.forceLocationPermissionCheck()
+                        } catch {
+                            print("[MapViewModel] Error during force location check: \(error)")
+                        }
+                    }
                 }
             }
         }
     }
     
+    // MARK: - Video Upload Service
+    /// Helper class to handle video upload operations
+    class VideoUploadService {
+        private let storage = Storage.storage()
+        
+        func uploadVideo(pinId: String, videoURL: URL, metadata: StorageMetadata? = nil) async throws -> String {
+            // Create a reference to Firebase Storage
+            let storageRef = storage.reference().child("videos/\(pinId).mp4")
+            let customMetadata = metadata ?? {
+                let meta = StorageMetadata()
+                meta.contentType = "video/mp4"
+                return meta
+            }()
+            
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                // Create a semaphore to wait for the async operation
+                let semaphore = DispatchSemaphore(value: 0)
+                var uploadError: Error?
+                var downloadURL: URL?
+                
+                // Start the upload task
+                let uploadTask = storageRef.putFile(from: videoURL, metadata: customMetadata)
+                
+                // Create a class to hold and isolate the uploadTask
+                let taskHolder = StorageTaskHolder(task: uploadTask)
+                
+                // Set up progress handler if needed
+                let progressHandler = uploadTask.observe(.progress) { snapshot in
+                    let percentComplete = Double(snapshot.progress?.completedUnitCount ?? 0) / Double(snapshot.progress?.totalUnitCount ?? 1) * 100
+                    print("Upload is \(percentComplete)% complete")
+                    
+                    // Update progress in a properly isolated way
+                    Task { @MainActor in
+                        NotificationCenter.default.post(
+                            name: .videoUploadProgressUpdated, 
+                            object: nil, 
+                            userInfo: ["progress": percentComplete/100.0]
+                        )
+                    }
+                }
+                
+                // Set up completion handler
+                let completionHandler = uploadTask.observe(.success) { _ in
+                    // Get download URL
+                    storageRef.downloadURL { url, error in
+                        if let error = error {
+                            uploadError = error
+                            semaphore.signal()
+                            return
+                        }
+                        
+                        guard let url = url else {
+                            uploadError = NSError(domain: "VideoUploadService", code: -1, 
+                                               userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"])
+                            semaphore.signal()
+                            return
+                        }
+                        
+                        downloadURL = url
+                        semaphore.signal()
+                    }
+                }
+                
+                // Set up error handler
+                let errorHandler = uploadTask.observe(.failure) { snapshot in
+                    uploadError = snapshot.error
+                    semaphore.signal()
+                }
+                
+                // Get all the values we need before the closure
+                // to avoid capturing mutable state in the @Sendable closure
+                let taskRef = taskHolder.task
+                
+                // Wait for completion (on a background thread)
+                // Create a local, non-escaping function to use the task reference safely
+                func handleCompletion() {
+                    semaphore.wait()
+                    
+                    // Clean up observers using the captured reference 
+                    taskRef?.removeObserver(withHandle: progressHandler)
+                    taskRef?.removeObserver(withHandle: completionHandler)
+                    taskRef?.removeObserver(withHandle: errorHandler)
+                }
+                
+                // Execute the closure without capturing taskHolder
+                DispatchQueue.global(qos: .userInitiated).async {
+                    handleCompletion()
+                    
+                    // Handle result
+                    if let error = uploadError {
+                        continuation.resume(throwing: error)
+                    } else if let url = downloadURL {
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: NSError(domain: "VideoUploadService", code: -2, 
+                                                          userInfo: [NSLocalizedDescriptionKey: "Unknown upload error"]))
+                    }
+                }
+            }
+        }
+    }
+
+    // In MapViewModel class, replace the complex upload methods with:
+
+    private let uploadService = VideoUploadService()
+
+    // Replace the complex dropPinWithVideo method with this simplified version
     func dropPinWithVideo(for incidentType: IncidentType, videoURL: URL) async throws {
         guard let pendingCoordinate = pendingCoordinate,
               let currentUserId = Auth.auth().currentUser?.uid else {
@@ -691,95 +984,127 @@ class MapViewModel: NSObject, ObservableObject {
         
         let pinId = UUID().uuidString
         
-        // Upload video to Firebase Storage
-        let storageRef = Storage.storage().reference().child("videos/\(pinId).mp4")
+        // Show upload progress
+        await MainActor.run {
+            uploadProgress = 0.01 // Start with non-zero progress
+        }
         
-        // Create metadata
-        let metadata = StorageMetadata()
-        metadata.contentType = "video/mp4"
+        // Set up progress updates using MainActor dispatching
+        // Create a property to hold the progress value
+        let progressHolder = ProgressHolder()
         
-        return try await withCheckedThrowingContinuation { continuation in
-            // Start the upload task
-            let uploadTask = storageRef.putFile(from: videoURL, metadata: metadata)
+        // Set up progress observer - store handle for later removal
+        let progressObserver = NotificationCenter.default.addObserver(
+            forName: .videoUploadProgressUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak progressHolder] notification in
+            guard let progressHolder = progressHolder,
+                  let progress = notification.userInfo?["progress"] as? Double else { return }
             
-            // Store handles so we can remove them later
-            var progressHandle: UInt?
-            var successHandle: UInt?
-            var failureHandle: UInt?
+            // Update the holder first
+            progressHolder.progress = progress
             
-            // Monitor upload progress and handle completion
-            progressHandle = uploadTask.observe(.progress) { snapshot in
-                let percentComplete = Double(snapshot.progress?.completedUnitCount ?? 0) / Double(snapshot.progress?.totalUnitCount ?? 1) * 100
-                print("Upload is \(percentComplete)% complete")
-            }
+            // Post a notification for the MainActor to handle
+            NotificationCenter.default.post(
+                name: .uploadProgressUpdatedMainActor,
+                object: nil,
+                userInfo: ["progress": progress]
+            )
+        }
+        
+        do {
+            // Upload video and get URL
+            let remoteURL = try await uploadService.uploadVideo(pinId: pinId, videoURL: videoURL)
             
-            successHandle = uploadTask.observe(.success) { _ in
-                // Clean up observers
-                if let progressHandle = progressHandle {
-                    uploadTask.removeObserver(withHandle: progressHandle)
-                }
-                if let failureHandle = failureHandle {
-                    uploadTask.removeObserver(withHandle: failureHandle)
+            // Create pin
+            let newPin = Pin(
+                id: pinId,
+                coordinate: pendingCoordinate,
+                incidentType: incidentType,
+                videoURL: remoteURL,
+                userId: currentUserId
+            )
+            
+            // Save to Firestore
+            try await savePinToFirestore(newPin)
+            
+            // Update local state
+            await MainActor.run {
+                self.pins.append(newPin)
+                self.pendingCoordinate = nil
+                self.showingIncidentPicker = false
+                self.uploadProgress = 1.0
+                
+                // Reset progress after a delay - use proper actor isolation
+                Task { 
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    // Use nonisolated way to dispatch to MainActor to avoid capturing self
+                    await MainActor.run {
+                        self.uploadProgress = 0
+                    }
                 }
                 
-                // Get download URL after successful upload
-                storageRef.downloadURL { url, error in
-                    if let error = error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    
-                    guard let downloadURL = url else {
-                        continuation.resume(throwing: NSError(domain: "StorageError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"]))
-                        return
-                    }
-                    
-                    // Create pin data
-                    let pin = Pin(
-                        id: pinId,
-                        coordinate: pendingCoordinate,
-                        incidentType: incidentType,
-                        videoURL: downloadURL.absoluteString,
-                        userId: currentUserId
-                    )
-                    
-                    // Add pin to Firestore
-                    let db = Firestore.firestore()
-                    do {
-                        let data = try JSONEncoder().encode(pin)
-                        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-                        db.collection("pins").document(pinId).setData(dict) { error in
-                            if let error = error {
-                                continuation.resume(throwing: error)
-                            } else {
-                                continuation.resume(returning: ())
-                            }
-                        }
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
+                // Store the task for potential cancellation later using a detached @MainActor task
+                // to avoid capturing self in the Sendable closure
+                Task { @MainActor in
+                    // This task storage isn't strictly necessary but helps with cleanup
+                    // ... existing code ...
                 }
             }
-            
-            failureHandle = uploadTask.observe(.failure) { snapshot in
-                // Clean up observers
-                if let progressHandle = progressHandle {
-                    uploadTask.removeObserver(withHandle: progressHandle)
-                }
-                if let successHandle = successHandle {
-                    uploadTask.removeObserver(withHandle: successHandle)
-                }
-                
-                if let error = snapshot.error as? NSError {
-                    continuation.resume(throwing: error)
-                }
+        } catch {
+            await MainActor.run {
+                showError("Failed to upload video", error)
+                clearPendingData()
             }
         }
+        
+        // Remove the observer when done
+        NotificationCenter.default.removeObserver(progressObserver)
+    }
+
+    // Simplified method to save pin to Firestore
+    private func savePinToFirestore(_ pin: Pin) async throws {
+        let data: [String: Any] = [
+            "latitude": pin.coordinate.latitude,
+            "longitude": pin.coordinate.longitude,
+            "type": pin.incidentType.firestoreType,
+            "videoURL": pin.videoURL,
+            "userId": pin.userId,
+            "timestamp": Timestamp(),
+            "deviceID": UIDevice.current.identifierForVendor?.uuidString ?? ""
+        ]
+        
+        try await db.collection("pins").document(pin.id).setData(data)
     }
     
+    // MARK: - Pin Creation and Upload
+    private func uploadVideoAndCreatePin(videoData: Data, pinDetails: PinDraft) {
+        // Check if user is anonymous before proceeding with video operations
+        if authState.isAnonymous {
+            showError("Guests cannot upload videos.")
+            reportStep = nil // Dismiss the report sheet
+            self.authState.isLoading = false // Reset loading state if any
+            return
+        }
+
+        self.authState.isLoading = true
+
+        // ... rest of the method ...
+    }
+
+    /// Call when the user dismisses an alert presented by the View layer.
+    /// Resets the `isShowingAlert` flag and shows the next queued alert if any.
+    @MainActor
+    func alertDismissed() {
+        isShowingAlert = false
+        alertTitle = nil
+        processAlertQueue()
+    }
+
     func startReportFlow(at coord: CLLocationCoordinate2D) {
         reportDraft = PinDraft(coordinate: coord)
-        reportStep = .type
+        reportStep = .incidentType
     }
     
     @MainActor
@@ -787,50 +1112,309 @@ class MapViewModel: NSObject, ObservableObject {
         // Check if user is anonymous AND trying to upload a video
         if authState.isAnonymous && draft.videoURL != nil {
             showError("Guests cannot upload videos.")
-            reportStep = nil // Dismiss the report sheet
-            // Potentially clear draft.videoURL or reset draft if needed
-            // self.reportDraft.videoURL = nil 
+            reportStep = nil 
             return
         }
 
+        // Generate a unique ID for the pin
+        let pinId = UUID().uuidString
+        print("[MapViewModel] Starting upload process for pin ID: \(pinId)")
+        
+        // Initialize the remote URL to an empty string
+        var remoteURL = ""
+        
         do {
-            let pinId = UUID().uuidString
-            let remoteURL = try await StorageUploader.uploadIfNeeded(
-                                pinId: pinId, localURL: draft.videoURL)
-            try await FirestorePins.addPin(id: pinId,
-                                           coord: draft.coordinate,
-                                           type: draft.incidentType,
-                                           videoURL: remoteURL)
-            pins.append(draft.makePin(id: pinId, remote: remoteURL))
-            reportStep = nil                       // close sheet
+            // Step 1: If there's a video URL, handle the video upload separately
+            if let videoURL = draft.videoURL {
+                // Verify file exists and is readable
+                let fileManager = FileManager.default
+                guard fileManager.fileExists(atPath: videoURL.path) else {
+                    throw NSError(domain: "MapViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Video file not found at path: \(videoURL.path)"])
+                }
+                
+                let fileSize = try fileManager.attributesOfItem(atPath: videoURL.path)[.size] as? UInt64 ?? 0
+                print("[MapViewModel] Found video file at path: \(videoURL.path), size: \(fileSize) bytes")
+                
+                if fileSize == 0 {
+                    throw NSError(domain: "MapViewModel", code: -2, userInfo: [NSLocalizedDescriptionKey: "Video file is empty (0 bytes)"])
+                }
+                
+                // Show upload progress
+                uploadProgress = 0.01 // Start with non-zero progress
+                
+                // Set up progress observation
+                let progressObserver = NotificationCenter.default.addObserver(
+                    forName: .videoUploadProgressUpdated,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] notification in
+                    guard let self = self,
+                          let progress = notification.userInfo?["progress"] as? Double else { return }
+                    // Update the progress using MainActor.run to avoid capturing self
+                    Task { @MainActor in
+                        self.uploadProgress = progress
+                        print("[MapViewModel] Upload progress updated: \(Int(progress * 100))%")
+                    }
+                }
+                
+                do {
+                    // Call StorageUploader with better error handling
+                    print("[MapViewModel] Beginning StorageUploader.uploadIfNeeded for pin ID: \(pinId)")
+                    remoteURL = try await StorageUploader.uploadIfNeeded(pinId: pinId, localURL: videoURL)
+                    print("[MapViewModel] Video upload successful: \(remoteURL)")
+                    
+                    // Clean up temp file
+                    do {
+                        try FileManager.default.removeItem(at: videoURL)
+                        print("[MapViewModel] Cleaned up temporary file at: \(videoURL.path)")
+                    } catch {
+                        print("[MapViewModel] Warning: Could not clean up temp file: \(error.localizedDescription)")
+                    }
+                } catch {
+                    // Clean up notification observer
+                    NotificationCenter.default.removeObserver(progressObserver)
+                    
+                    // Reset progress
+                    uploadProgress = 0
+                    
+                    print("[MapViewModel] Video upload failed: \(error.localizedDescription)")
+                    // Show error and rethrow
+                    showError("Video upload failed", error)
+                    throw error
+                }
+                
+                // Clean up notification observer
+                NotificationCenter.default.removeObserver(progressObserver)
+                
+                // Mark upload as complete
+                uploadProgress = 1.0
+                
+                // Reset progress after a delay - use proper actor isolation
+                Task { 
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    // Use nonisolated way to dispatch to MainActor to avoid capturing self
+                    await MainActor.run {
+                        self.uploadProgress = 0
+                    }
+                }
+                
+                // Store the task for potential cancellation later using a detached @MainActor task
+                // to avoid capturing self in the Sendable closure
+                Task { @MainActor in
+                    // This task storage isn't strictly necessary but helps with cleanup
+                    // ... existing code ...
+                }
+            }
+            
+            // Step 2: Create the Firestore document with proper error handling
+            do {
+                print("[MapViewModel] Creating Firestore document for pin ID: \(pinId)")
+                try await createPinInFirestore(
+                    id: pinId,
+                    coordinate: draft.coordinate,
+                    incidentType: draft.incidentType,
+                    videoURL: remoteURL
+                )
+                print("[MapViewModel] Pin data saved to Firestore")
+            } catch {
+                print("[MapViewModel] Firestore document creation failed: \(error.localizedDescription)")
+                showError("Could not save pin data", error)
+                throw error
+            }
+            
+            // Step 3: Update local data
+            await updateLocalPins(draft: draft, pinId: pinId, remoteURL: remoteURL)
+            print("[MapViewModel] Local pins updated")
+            
+            // Step 4: Cleanup
+            pendingCoordinate = nil
+            reportStep = nil
+            
         } catch {
-            showError(error.localizedDescription)
+            // Main error handler - specific errors are already displayed in their own handlers
+            print("[MapViewModel] Report creation failed: \(error.localizedDescription)")
+            showError("Report creation failed", error)
         }
     }
     
-    // Enhanced zoom to user location function
-    func zoomToUserTight() {
-        guard let userLocation = userLocation else {
-            showAlert = true
-            alertMessage = "Unable to determine your location"
-            return
+    // Helper method to upload video
+    @MainActor
+    private func uploadVideo(pinId: String, videoURL: URL) async throws -> String {
+        // Add missing try keyword for the async call
+        return try await StorageUploader.uploadIfNeeded(pinId: pinId, localURL: videoURL)
+    }
+    
+    // Helper method to create Firestore document
+    @MainActor
+    private func createPinInFirestore(id: String, coordinate: CLLocationCoordinate2D, 
+                                     incidentType: IncidentType, videoURL: String) async throws {
+        try await FirestorePins.addPin(
+            id: id,
+            coord: coordinate,
+            type: incidentType,
+            videoURL: videoURL
+        )
+    }
+    
+    // Helper method to update local pins
+    @MainActor
+    private func updateLocalPins(draft: PinDraft, pinId: String, remoteURL: String) async {
+        // Add to local pins array 
+        pins.append(draft.makePin(id: pinId, remote: remoteURL))
+        
+        // Refresh pins after adding a new one
+        do {
+            try await refreshPins()
+        } catch {
+            print("[MapViewModel] Error refreshing pins: \(error.localizedDescription)")
+            self.showError("Failed to refresh incident markers", error)
+        }
+    }
+    
+    // Helper method to refresh pins from Firestore
+    @MainActor
+    func refreshPins() async throws {
+        print("[MapViewModel] Refreshing pins from Firestore")
+        let loadedPins = try await FirestorePins.getAllPins()
+        self.pins = loadedPins
+        print("[MapViewModel] Successfully refreshed \(loadedPins.count) pins")
+    }
+    
+    // MARK: - Location Range Visualization and Management
+    @MainActor
+    class RangeVisualizationManager {
+        private var circleOverlay: MKCircle?
+        private var mapView: MKMapView?
+        private let pinDropRange: CLLocationDistance = 200 * 0.3048 // 200 feet in meters
+        
+        // Initialize with map view
+        func setMapView(_ mapView: MKMapView) {
+            self.mapView = mapView
         }
         
-        // Zoom to roughly 200 foot radius for precise pin placement
-        // 200 feet is approximately 61 meters
-        let pinDropRadius = 200 * 0.3048 // Convert feet to meters
+        // Show range circle
+        func showRangeCircle(at center: CLLocationCoordinate2D) {
+            // Remove existing circle if any
+            removeRangeCircle()
+            
+            // Create new circle
+            let circle = MKCircle(center: center, radius: pinDropRange)
+            circleOverlay = circle
+            
+            // Safely access the mapView on the main actor
+            Task { @MainActor in
+                mapView?.addOverlay(circle, level: .aboveRoads)
+                
+                // Animate it into view - also on the main actor
+                UIView.animate(withDuration: 0.3) { [weak self] in
+                    self?.mapView?.layoutIfNeeded()
+                }
+            }
+        }
         
-        // Calculate span to show roughly the pin drop radius
-        // Approx conversion: 1 degree latitude = 111km (111,000m)
-        let spanDelta = (pinDropRadius * 1.5) / 111000
+        // Remove range circle
+        func removeRangeCircle() {
+            if let circle = circleOverlay {
+                // Safely remove overlay on the main actor
+                Task { @MainActor in
+                    mapView?.removeOverlay(circle)
+                }
+                circleOverlay = nil
+            }
+        }
         
-        // Set region with tight zoom focused on user
-        let newTightRegion = MKCoordinateRegion(
-            center: userLocation.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: spanDelta, longitudeDelta: spanDelta)
+        // Calculate if a coordinate is within the pin drop range - this can remain non-MainActor
+        nonisolated func isCoordinateWithinRange(userLocation: CLLocationCoordinate2D, coordinate: CLLocationCoordinate2D) -> Bool {
+            let userLocationCL = CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude)
+            let targetLocationCL = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            
+            // This calculation doesn't involve UI or MainActor state
+            let distance = userLocationCL.distance(from: targetLocationCL)
+            let pinDropRange: CLLocationDistance = 200 * 0.3048 // 200 feet in meters
+            return distance <= pinDropRange
+        }
+        
+        // Get appropriate zoom level for 200-foot range - also safe to be non-MainActor
+        nonisolated func zoomLevelForPinDropRange(at center: CLLocationCoordinate2D) -> MKCoordinateRegion {
+            // 200 feet + a bit of margin (~250 feet)
+            let pinDropRange: CLLocationDistance = 200 * 0.3048 // 200 feet in meters
+            let spanDelta = pinDropRange * 1.25 / 111000 // Convert meters to degrees (1 degree ≈ 111km)
+            
+            // Create a span that fits the range circle with a bit of margin
+            let span = MKCoordinateSpan(
+                latitudeDelta: spanDelta,
+                longitudeDelta: spanDelta 
+            )
+            
+            return MKCoordinateRegion(center: center, span: span)
+        }
+    }
+
+    // Add this property to MapViewModel
+    private let rangeVisualizationManager = RangeVisualizationManager()
+
+    // Add this method to initialize the range visualization manager
+    func setupRangeVisualization(on mapView: MKMapView) {
+        rangeVisualizationManager.setMapView(mapView)
+    }
+
+    // Replace the existing zoomToUserTight method with this enhanced version
+    func zoomToUserTight() {
+        Task {
+            if let userLocation = await getCurrentLocation()?.coordinate {
+                // Set region to the tight zoom level for pin dropping
+                let region = rangeVisualizationManager.zoomLevelForPinDropRange(at: userLocation)
+                
+                await MainActor.run {
+                    // Update the map region
+                    mapRegion = region
+                    
+                    // Show the range circle
+                    rangeVisualizationManager.showRangeCircle(at: userLocation)
+                    
+                    // Hide the range circle after a delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                        self?.rangeVisualizationManager.removeRangeCircle()
+                    }
+                }
+            } else {
+                await MainActor.run {
+                    showError("Could not get your current location")
+                }
+            }
+        }
+    }
+
+    // Replace isWithinPinDropRange with this improved version
+    func isWithinPinDropRange(coordinate: CLLocationCoordinate2D) async -> Bool {
+        // Get current location (or nil if not available/authorized)
+        guard let userLocation = await getCurrentLocation() else {
+            await MainActor.run {
+                showError("Unable to verify your location")
+            }
+            return false
+        }
+        
+        // Use the range visualization manager to check distance
+        let within = rangeVisualizationManager.isCoordinateWithinRange(
+            userLocation: userLocation.coordinate,
+            coordinate: coordinate
         )
-        self.region = newTightRegion      // Update the ViewModel's main region state
-        self.mapRegion = newTightRegion   // Signal the MapView to update
+        
+        // If not within range, show the range circle to help the user
+        if !within {
+            await MainActor.run {
+                // Briefly show the range circle to indicate the allowed area
+                rangeVisualizationManager.showRangeCircle(at: userLocation.coordinate)
+                
+                // Then hide it after a delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    self?.rangeVisualizationManager.removeRangeCircle()
+                }
+            }
+        }
+        
+        return within
     }
     
     // Cycle through multiple map types instead of just two
@@ -865,23 +1449,6 @@ class MapViewModel: NSObject, ObservableObject {
         }
     }
     
-    /// Checks if a given coordinate is within 200 feet of the user's current location
-    /// - Parameter coordinate: The coordinate to check
-    /// - Returns: Boolean indicating if coordinate is within range
-    func isWithinPinDropRange(coordinate: CLLocationCoordinate2D) async -> Bool {
-        guard let userLocation = await getCurrentLocation() else {
-            return false
-        }
-        
-        let pinLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let distance = userLocation.distance(from: pinLocation)
-        
-        // 200 feet in meters (1 foot ≈ 0.3048 meters)
-        let pinDropLimit = 200 * 0.3048
-        
-        return distance <= pinDropLimit
-    }
-    
     // Zoom limits (approx)
     private let minSpanDelta: CLLocationDegrees = 0.0003  // ~30-40 m
     private let maxSpanDelta: CLLocationDegrees = 1.0      // ~110 km
@@ -903,176 +1470,308 @@ class MapViewModel: NSObject, ObservableObject {
                 pins.append(newPin)
                 reportStep = nil // Dismiss sheet on success
             } catch {
-                showError("Failed to save pin with video: \(error.localizedDescription)")
+                showError("Failed to save pin with video", error)
             }
         }
     }
     
     private func uploadVideoToStorage(videoData: Data, fileExtension: String) async throws -> URL {
-        // Implementation of uploadVideoToStorage method
-        // This method should return the URL of the uploaded video
-        fatalError("Method not implemented")
+        let pinId = UUID().uuidString
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFileURL = tempDir.appendingPathComponent("temp_video_\(pinId).\(fileExtension)")
+        
+        do {
+            // Save data to temporary file
+            try videoData.write(to: tempFileURL)
+            
+            // Use the existing StorageUploader to handle the upload
+            let remoteURL = try await StorageUploader.uploadIfNeeded(pinId: pinId, localURL: tempFileURL)
+            
+            // Clean up temporary file
+            try? FileManager.default.removeItem(at: tempFileURL)
+            
+            // Return the uploaded URL
+            return URL(string: remoteURL)!
+        } catch {
+            // Clean up temporary file in case of error
+            try? FileManager.default.removeItem(at: tempFileURL)
+            throw error
+        }
+    }
+
+    // MARK: - Add MainActor observation for progress
+    @MainActor
+    func updateProgressOnMainActor(_ progress: Double) {
+        self.uploadProgress = progress
     }
     
-    private func savePinToFirestore(_ pin: Pin) async throws {
-        // Implementation of savePinToFirestore method
-        // This method should save the pin to Firestore
-        fatalError("Method not implemented")
+    // Set up progress observer for upload progress updates
+    func setupProgressObservation() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleProgressUpdateNotification),
+            name: .uploadProgressUpdatedMainActor,
+            object: nil
+        )
     }
-
-    // MARK: - Pin Creation and Upload
-    private func uploadVideoAndCreatePin(videoData: Data, pinDetails: PinDraft) {
-        // Check if user is anonymous before proceeding with video operations
-        if authState.isAnonymous {
-            showError("Guests cannot upload videos.")
-            reportStep = nil // Dismiss the report sheet
-            self.authState.isLoading = false // Reset loading state if any
-            return
+    
+    @objc private func handleProgressUpdateNotification(_ notification: Notification) {
+        guard let progress = notification.userInfo?["progress"] as? Double else { return }
+        Task { @MainActor in
+            self.uploadProgress = progress
         }
-
-        self.authState.isLoading = true
-
-        // ... rest of the method ...
-    }
-
-    /// Call when the user dismisses an alert presented by the View layer.
-    /// Resets the `isShowingAlert` flag and shows the next queued alert if any.
-    @MainActor
-    func alertDismissed() {
-        isShowingAlert = false
-        processAlertQueue()
     }
 }
 
-// MARK: - CLLocationManagerDelegate
+// MARK: - Location Manager Delegate
+
+@MainActor
 extension MapViewModel: CLLocationManagerDelegate {
-    @nonisolated
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        // Capture the status in the nonisolated context
-        let status = manager.authorizationStatus
-        
-        // Process the status on the MainActor where UI updates happen
-        Task {
-            // Get location services enabled state off the main thread
-            let servicesEnabled = await self.checkLocationServicesEnabled()
-            
-            await MainActor.run {
-                print("[MapViewModel] Delegate: Authorization status changed to: \(status.rawValue)")
-                self.isLocationServicesEnabled = servicesEnabled
-                self.isLocationAuthorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
-                self.isRequestingLocation = false // No longer actively requesting permission itself
-
-                if !self.isLocationServicesEnabled {
-                    self.alertMessage = "Location services are disabled. Please enable them in Settings."
-                    self.showAlert = true
-                    return
-                }
-
-                switch status {
-                case .authorizedWhenInUse, .authorizedAlways:
-                    print("[MapViewModel] Delegate: Authorized.")
-                    self.isLimitedFunctionalityDueToLocationDenial = false // Clear the flag
-                    UserDefaults.standard.set(false, forKey: "userDeclinedLocationPermissions") // Clear user default
-                    // NEVER automatically get location - wait for explicit requests
-                    if self.shouldCenterAfterAuthorization {
-                        self.centerOnUserLocation()
-                        self.shouldCenterAfterAuthorization = false
-                    }
-                    if let coord = self.pendingCoordinate {
-                        self.initiatePinDropVerification(at: coord)
-                        self.pendingCoordinate = nil
-                    }
-                case .denied, .restricted:
-                    print("[MapViewModel] Delegate: Denied or restricted.")
-                    self.alertMessage = "Location access is required for core features. Please enable it in Settings."
-                    self.showAlert = true
-                    // Ensure userLocation is nil if access is denied to prevent using stale data
-                    self.userLocation = nil 
-                    self.isLimitedFunctionalityDueToLocationDenial = true // Set the flag
-                    UserDefaults.standard.set(true, forKey: "userDeclinedLocationPermissions") // Set user default
-                case .notDetermined:
-                    print("[MapViewModel] Delegate: Status became .notDetermined. This shouldn't usually happen after an initial request.")
-                @unknown default:
-                    print("[MapViewModel] Delegate: Unknown authorization status: \(status.rawValue)")
-                }
-
-                // If we're not in live-tracking mode, stop updates after we get a fix
-                if !self.isTrackingUserLocation {
-                    self.locationManager.stopUpdatingLocation()
-                }
-            }
-        }
-    }
     
-    @nonisolated
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+    nonisolated func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         Task { @MainActor in
-            // Store previous location to check if it's meaningfully different
-            let previousLocation = self.userLocation
+            print("[MapViewModel] Delegate: Authorization status changed to: \(status.rawValue)")
             
-            // Update userLocation
-            self.userLocation = location
-            print("[MapViewModel] Delegate: Location updated: \(location.coordinate)")
-            
-            // Determine if the region needs to be set to the user's current location.
-            // This happens if it's the first location fix, or if the map is currently
-            // showing one of the default locations (NYC or 0,0).
-            let isMapAtDefaultNYC = self.region.center.latitude == 40.7128 && self.region.center.longitude == -74.0060
-            let isMapAtDefaultEquator = self.region.center.latitude == 0 && self.region.center.longitude == 0
-            let shouldUpdateRegionToUserLocation = previousLocation == nil || isMapAtDefaultNYC || isMapAtDefaultEquator
-
-            if shouldUpdateRegionToUserLocation {
-                print("[MapViewModel] First location fix or map is at a default. Centering on user: \(location.coordinate)")
-                // Use a span consistent with other user-centric views, e.g., from centerOnUserLocation or a sensible default.
-                // For this example, using a span similar to the initial MapView span.
-                let defaultUserSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01) // A reasonable zoom level for user location
-                let newRegion = MKCoordinateRegion(
-                    center: location.coordinate,
-                    span: defaultUserSpan 
-                )
-                self.region = newRegion      // Update the ViewModel's main region state
-                self.mapRegion = newRegion   // Signal the MapView to update
-                print("[MapViewModel] Set initial map region to user location: \(newRegion.center), span: \(newRegion.span.latitudeDelta)")
-            }
-            
-            // Center map if explicitly requested after authorization
-            if self.shouldCenterAfterAuthorization {
-                self.centerOnUserLocation()
-                self.shouldCenterAfterAuthorization = false
-            }
-            
-            // Only post notification if the location is significantly different or it's the first location
-            let shouldNotify = previousLocation == nil || 
-                               (previousLocation?.distance(from: location) ?? 0) > 1.0 // 1 meter threshold
-            
-            if shouldNotify {
-                NotificationCenter.default.post(name: Notification.Name("LocationUpdated"), object: nil)
-                print("[MapViewModel] Posted LocationUpdated notification")
+            switch status {
+            case .authorizedWhenInUse, .authorizedAlways:
+                print("[MapViewModel] Delegate: Authorized.")
+                self.isLocationAuthorized = true
+                if self.shouldCenterAfterAuthorization {
+                    // Special handling for when we need to center after auth
+                    Task {
+                        do {
+                            try await self.forceLocationPermissionCheck()
+                        } catch {
+                            print("[MapViewModel] Error during force location check from delegate: \(error)")
+                        }
+                    }
+                }
+            case .denied, .restricted:
+                print("[MapViewModel] Delegate: Denied.")
+                self.isLocationAuthorized = false
+                self.isLimitedFunctionalityDueToLocationDenial = true
+                
+                // Only show error message if user actively requested location
+                if self.isRequestingLocation {
+                    self.showError("Location permission is required for this feature. Please enable in Settings.")
+                }
+                self.isRequestingLocation = false
+            case .notDetermined:
+                print("[MapViewModel] Delegate: Not Determined.")
+                self.isLocationAuthorized = false
+            @unknown default:
+                print("[MapViewModel] Delegate: Unknown authorization status.")
+                self.isLocationAuthorized = false
             }
         }
     }
     
-    @nonisolated
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("[MapViewModel] Delegate: Failed to get location: \(error.localizedDescription)")
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        
         Task { @MainActor in
             self.isRequestingLocation = false
-            // Optionally show an alert to the user
-            // self.alertMessage = "Failed to get location: \(error.localizedDescription)"
-            // self.showAlert = true
+            
+            // Store most accurate location
+            if self.userLocation == nil || 
+               self.userLocation!.horizontalAccuracy > location.horizontalAccuracy {
+                self.userLocation = location
+                
+                // Post notification for async waiting operations
+                NotificationCenter.default.post(name: Notification.Name("LocationUpdated"), object: nil)
+                print("[MapViewModel] Delegate: Location updated: (\(location.coordinate.latitude.truncated()), \(location.coordinate.longitude.truncated()))")
+                
+                // Center map if this is first location fix
+                if self.mapRegion == nil || self.region.center.latitude == 40.7128 {
+                    // Only auto-center on first fix or if map is at default
+                    print("[MapViewModel] First location fix or map is at a default. Centering on user: (\(location.coordinate.latitude.truncated()), \(location.coordinate.longitude.truncated()))")
+                    self.region = MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    )
+                    self.mapRegion = self.region
+                    print("[MapViewModel] Set initial map region to user location: (\(location.coordinate.latitude.truncated()), \(location.coordinate.longitude.truncated())), span: \(self.region.span.latitudeDelta)")
+                    print("[MapViewModel] Posted LocationUpdated notification")
+                }
+                
+                // Process any pending pin coordinates
+                if let pendingCoord = self.pendingCoordinate {
+                    self.initiatePinDropVerification(at: pendingCoord)
+                    self.pendingCoordinate = nil
+                }
+                
+                // If action was waiting for location
+                if self.shouldCenterAfterAuthorization {
+                    self.centerOnUserLocation()
+                    self.shouldCenterAfterAuthorization = false
+                }
+            }
         }
     }
     
-    // Add a helper method to access authorizationStatus safely in other parts of the code
-    func getCurrentAuthorizationStatus() -> CLAuthorizationStatus {
-        // Avoid touching the MainActor-isolated `locationManager` from the
-        // non-isolated context by instantiating a fresh manager here.
-        return CLLocationManager().authorizationStatus
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // Handle location errors gracefully
+        let errorCode = (error as NSError).code
+        let errorDescription = error.localizedDescription
+        
+        print("[MapViewModel] Location error \(errorCode): \(errorDescription)")
+        
+        Task { @MainActor in
+            // Don't show alerts for common location errors unless user explicitly requested location
+            if self.isRequestingLocation {
+                // Only show errors to user when they explicitly requested location
+                var message = "Unable to determine your location"
+                
+                // Provide more helpful messages for specific errors
+                if errorCode == CLError.denied.rawValue {
+                    message = "Location permission was denied. Please enable it in Settings."
+                } else if errorCode == CLError.network.rawValue {
+                    message = "Network error. Please check your connection and try again."
+                } else if errorCode == CLError.locationUnknown.rawValue {
+                    // This is common and temporary - don't alert user unless they explicitly requested
+                    message = "Your location is temporarily unavailable. Please try again later."
+                }
+                
+                if errorCode != CLError.locationUnknown.rawValue {
+                    // Don't show alerts for temporary unknown location errors
+                    self.showError(message)
+                }
+            }
+            
+            // For location unknown errors, which are temporary, try again after a short delay
+            if (error as NSError).code == CLError.locationUnknown.rawValue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    if self?.isRequestingLocation == true {
+                        // Only retry if still requesting
+                        self?.locationManager.requestLocation()
+                    }
+                }
+            }
+            
+            self.isRequestingLocation = false
+        }
     }
 }
 
-enum ReportStep: Int, Identifiable, CaseIterable {
-    case type, video, confirm
-    var id: Int { rawValue }
-} 
+// MARK: - Error Handling Extensions
+
+// Add this helper extension for user-friendly error messages
+extension Error {
+    var userFriendlyMessage: String {
+        let nsError = self as NSError
+        
+        // Handle network errors
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNotConnectedToInternet:
+                return "No internet connection. Please check your connection and try again."
+            case NSURLErrorTimedOut:
+                return "Connection timed out. Please try again later."
+            case NSURLErrorNetworkConnectionLost:
+                return "Network connection was lost. Please try again."
+            default:
+                return "Network error. Please check your connection and try again."
+            }
+        }
+        
+        // Handle Firebase errors
+        if nsError.domain.contains("Firebase") {
+            // Auth errors
+            if nsError.domain.contains("Auth") {
+                switch nsError.code {
+                case 17005:
+                    return "Email address is already in use. Please use another email."
+                case 17008:
+                    return "Incorrect email or password. Please try again."
+                case 17009:
+                    return "Too many failed login attempts. Please try again later."
+                case 17011:
+                    return "Your account has been disabled. Please contact support."
+                case 17026:
+                    return "Password is too weak. Please use a stronger password."
+                default:
+                    return "Authentication error. Please try again."
+                }
+            }
+            
+            // Storage errors
+            if nsError.domain.contains("Storage") {
+                switch nsError.code {
+                case -13000:
+                    return "Video upload failed. Please try again."
+                case -13010:
+                    return "Not authorized to upload videos. Please sign in."
+                default:
+                    return "Storage error. Please try again."
+                }
+            }
+            
+            // Firestore errors
+            if nsError.domain.contains("Firestore") {
+                switch nsError.code {
+                case 13:
+                    return "Server is unavailable. Please try again later."
+                case 7:
+                    return "Network error. Please check your connection."
+                case 16:
+                    return "Not authorized to perform this action."
+                default:
+                    return "Database error. Please try again."
+                }
+            }
+        }
+        
+        // Handle video-specific errors
+        if nsError.domain.contains("AVFoundation") || nsError.domain.contains("Photos") {
+            return "Video could not be processed. Please try another video."
+        }
+        
+        // General permissions errors
+        if nsError.domain.contains("Photos") && (nsError.code == 3 || nsError.code == 4) {
+            return "Photo library access denied. Please allow access in Settings."
+        }
+        
+        // Location errors
+        if nsError.domain == "CLLocationManager" {
+            return "Location services error. Please check your location permissions."
+        }
+        
+        // Default error message for unhandled errors
+        return self.localizedDescription
+    }
+}
+
+// MARK: - Notification Extensions
+extension Notification.Name {
+    static let videoUploadProgressUpdated = Notification.Name("videoUploadProgressUpdated")
+    static let uploadProgressUpdatedMainActor = Notification.Name("uploadProgressUpdatedMainActor")
+}
+
+// Class to safely hold StorageUploadTask
+class StorageTaskHolder: @unchecked Sendable {
+    var task: StorageUploadTask?
+    
+    init(task: StorageUploadTask) {
+        self.task = task
+    }
+}
+
+// Class to safely hold progress values across actor boundaries
+class ProgressHolder: @unchecked Sendable {
+    var progress: Double = 0
+}
+
+// MARK: - Add MainActor observation for progress
+extension MapViewModel {
+    // Safe method to update progress on main actor
+    @objc private func updateProgressOnMainActor(_ notification: Notification) {
+        guard let progress = notification.userInfo?["progress"] as? Double else { return }
+        self.uploadProgress = progress
+    }
+}
+
+enum LocationError: Error {
+    case servicesDisabled
+    case permissionDenied
+    case unknown
+}

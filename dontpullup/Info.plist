@@ -28,11 +28,11 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is needed to record incident videos. You are solely responsible for any content you record and share. By recording content, you confirm you have the right to record and accept responsibility for its contents.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Location access is required to verify and place incident markers within 200 feet of your position. You are responsible for ensuring the accuracy of location data. The app uses location data solely for incident verification and placement.</string>
+	<string>Your location is used to show you nearby incidents and allow you to report incidents at your current location.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Location access is required to verify and place incident markers within 200 feet of your position</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Location access is required to verify and place incident markers within 200 feet of your position. You are responsible for ensuring the accuracy of location data. The app uses location data solely for incident verification and placement.</string>
+	<string>Your location is used to show you nearby incidents and allow you to report incidents at your current location.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is needed for video recording. You are responsible for any audio recorded. By recording audio, you confirm you have the right to record and accept responsibility for its contents.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -73,6 +73,19 @@
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<key>CG_NUMERICS_SHOW_BACKTRACE</key>
 	<true/>
+	<key>MTL_DEBUG_LAYER</key>
+	<false/>
+	<key>Metal Environment Variables</key>
+	<dict>
+		<key>MTL_DEBUG_LAYER</key>
+		<string>0</string>
+		<key>METAL_DEVICE_WRAPPER_TYPE</key>
+		<string>0</string>
+		<key>MTL_DEVICE_DEBUG</key>
+		<string>0</string>
+	</dict>
 </dict>
 </plist>

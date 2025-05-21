@@ -3,6 +3,10 @@ import Firebase
 import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
+import OSLog
+
+// Create a logger
+private let appLogger = Logger(subsystem: "com.dontpullup", category: "AppDelegate")
 
 // Force Firebase initialization at module load time
 private let firebaseLoadTime: Void = {
@@ -19,6 +23,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     static var isFirebaseConfigured = true
     
+    // Disable Metal validation to prevent debugger interruptions
+    private let metalDebugDisabler: Void = {
+        UserDefaults.standard.set(false, forKey: "MTL_DEBUG_LAYER")
+        setenv("MTL_DEBUG_LAYER", "0", 1)
+        setenv("METAL_DEVICE_WRAPPER_TYPE", "0", 1)
+        setenv("MTL_DEVICE_DEBUG", "0", 1)
+        return ()
+    }()
+    
     override init() {
         // Make sure Firebase is already configured from the static initializer
         _ = firebaseLoadTime
@@ -30,6 +43,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             FirebaseApp.configure()
             print("[AppDelegate] Firebase configured in AppDelegate init")
         }
+        
+        // Set up first responder tracking for keyboard management
+        setupFirstResponderTracking()
+    }
+    
+    private func setupFirstResponderTracking() {
+        // Add notification observers for keyboard tracking
+        NotificationCenter.default.addObserver(forName: UITextField.textDidBeginEditingNotification,
+                                              object: nil, queue: nil) { notification in
+            if let textField = notification.object as? UITextField {
+                UIResponder.currentFirstResponder = textField
+            }
+        }
+        
+        NotificationCenter.default.addObserver(forName: UITextField.textDidEndEditingNotification,
+                                              object: nil, queue: nil) { _ in
+            UIResponder.currentFirstResponder = nil
+        }
+        
+        NotificationCenter.default.addObserver(forName: UITextView.textDidBeginEditingNotification,
+                                              object: nil, queue: nil) { notification in
+            if let textView = notification.object as? UITextView {
+                UIResponder.currentFirstResponder = textView
+            }
+        }
+        
+        NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
+                                              object: nil, queue: nil) { _ in
+            UIResponder.currentFirstResponder = nil
+        }
     }
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -38,6 +81,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             FirebaseApp.configure()
             print("[AppDelegate] Firebase configured in didFinishLaunchingWithOptions")
         }
+        
+        // Copy map style resources to accessible location
+        DispatchQueue.global(qos: .utility).async {
+            // Directly create MapStyles directory since we can't import Utils module here
+            let fileManager = FileManager.default
+            if let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+                let mapStylesDirectory = documentsDirectory.appendingPathComponent("MapStyles", isDirectory: true)
+                do {
+                    if !fileManager.fileExists(atPath: mapStylesDirectory.path) {
+                        try fileManager.createDirectory(at: mapStylesDirectory, withIntermediateDirectories: true)
+                        print("[AppDelegate] Created MapStyles directory in Documents")
+                    }
+                } catch {
+                    print("[AppDelegate] Error creating MapStyles directory: \(error.localizedDescription)")
+                }
+            }
+        }
+        
         return true
     }
     

@@ -1,5 +1,8 @@
 {
-    "version": "1.0",
+    "version": 8,
+    "name": "Default",
+    "sources": {},
+    "layers": [],
     "settings": {
         "landColor": "#FFFFFF",
         "waterColor": "#A5D8FF",

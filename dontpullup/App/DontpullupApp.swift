@@ -1,27 +1,45 @@
 import SwiftUI
 import FirebaseCore
+import FirebaseAuth
+import UserNotifications
 // import FirebaseCore // Assuming AppDelegate handles this sufficiently
 
 @main
 struct DontpullupApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var networkMonitor = NetworkMonitor()
-    @StateObject private var authState: AuthState // Declare as @StateObject, initialize in init
+    @StateObject private var authState = AuthState.shared
     
     init() {
-        // Firebase should already be configured by the module load-time initializer
-        // No need to reference AppDelegate.configureFirebase anymore
+        print("[DontpullupApp] Initializer started.")
         
-        // Initialize AuthState
-        self._authState = StateObject(wrappedValue: AuthState.shared)
+        // Configure Metal optimizations and safeguards
+        configureMetalSettings()
+        
+        // Initialize the Metal resource manager to prevent texture deallocation issues
+        let _ = MetalResourceManager.shared
+        
         print("[DontpullupApp] Initializer finished.")
+    }
+    
+    // Configure Metal settings to prevent issues
+    private func configureMetalSettings() {
+        // Set Metal environment variables for better error reporting and performance
+        setenv("MTL_DEBUG_LAYER", "0", 1)  // Disable Metal debug layer
+        setenv("METAL_DEVICE_WRAPPER_TYPE", "1", 1)  // Use Shared mode
+        
+        // Configure user defaults for Metal
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "MTLDebugErrorHandler")
+        defaults.set(false, forKey: "MTLDebugResourceTracking")
+        defaults.synchronize()
     }
     
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environmentObject(networkMonitor) // Inject NetworkMonitor
-                .environmentObject(authState)    // Inject AuthState
+                .environmentObject(authState)
+                .environmentObject(networkMonitor)
         }
     }
 } 

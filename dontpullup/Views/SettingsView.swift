@@ -1,4 +1,7 @@
 import SwiftUI
+import Firebase
+import MessageUI
+import StoreKit
 
 struct SettingsView: View {
     @EnvironmentObject private var authState: AuthState
@@ -8,6 +11,10 @@ struct SettingsView: View {
     @State private var darkModeEnabled = true
     @State private var hapticFeedbackEnabled = true
     @State private var showResetConfirmation = false
+    @State private var showPrivacyPolicy = false
+    @State private var showTermsOfService = false
+    @State private var showMailComposer = false
+    @State private var showAbout = false
     
     var body: some View {
         NavigationView {
@@ -76,14 +83,12 @@ struct SettingsView: View {
                                     .padding(.vertical, 4)
                             }
                             
-                            NavigationLink(destination: PrivacyPolicyView()) {
-                                Text("Privacy Policy")
-                                    .padding(.vertical, 4)
+                            Button("Privacy Policy") {
+                                showPrivacyPolicy = true
                             }
                             
-                            NavigationLink(destination: TermsOfServiceView()) {
-                                Text("Terms of Service")
-                                    .padding(.vertical, 4)
+                            Button("Terms of Service") {
+                                showTermsOfService = true
                             }
                         }
                         
@@ -123,6 +128,9 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(trailing: Button("Done") {
+                dismiss()
+            })
             .alert("Reset Settings", isPresented: $showResetConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Reset", role: .destructive) {
@@ -130,6 +138,19 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("Are you sure you want to reset all settings to their default values?")
+            }
+            // Sheet presentations
+            .sheet(isPresented: $showPrivacyPolicy) {
+                NavigationView {
+                    PrivacyPolicyView()
+                        .navigationBarItems(trailing: Button("Done") { showPrivacyPolicy = false })
+                }
+            }
+            .sheet(isPresented: $showTermsOfService) {
+                NavigationView {
+                    TermsOfServiceView()
+                        .navigationBarItems(trailing: Button("Done") { showTermsOfService = false })
+                }
             }
         }
         .navigationViewStyle(.stack)
@@ -208,111 +229,7 @@ struct AboutView: View {
     }
 }
 
-struct PrivacyPolicyView: View {
-    var body: some View {
-        ZStack {
-            Image("welcome_background")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .edgesIgnoringSafeArea(.all)
-            
-            Color.black.opacity(0.7)
-                .edgesIgnoringSafeArea(.all)
-                
-            ZStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Privacy Policy")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        
-                        Text("Last updated: June 2023")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        
-                        Text("This Privacy Policy describes how Don't Pull Up collects, uses, and discloses your personal information when you use our mobile application.")
-                            .foregroundColor(.white)
-                        
-                        Group {
-                            Text("Information We Collect")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            Text("We may collect certain personal information when you create an account, such as your email address, display name, and general location. We also collect information about the incidents you report, including location data and incident type.")
-                                .foregroundColor(.white)
-                        }
-                        
-                        Group {
-                            Text("How We Use Your Information")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            Text("We use the information we collect to provide, maintain, and improve our services, to communicate with you, and to protect our users and the public.")
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .padding()
-                }
-            }
-        }
-        .navigationTitle("Privacy Policy")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct TermsOfServiceView: View {
-    var body: some View {
-        ZStack {
-            Image("welcome_background")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .edgesIgnoringSafeArea(.all)
-            
-            Color.black.opacity(0.7)
-                .edgesIgnoringSafeArea(.all)
-                
-            ZStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Terms of Service")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        
-                        Text("Last updated: June 2023")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        
-                        Text("By downloading, installing, or using Don't Pull Up, you agree to be bound by these Terms of Service. If you do not agree to these terms, you may not use the app.")
-                            .foregroundColor(.white)
-                        
-                        Group {
-                            Text("User Content")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            Text("Users are responsible for the content they submit to the app. You agree not to submit false or misleading information, or content that is offensive, harmful, or violates the rights of others.")
-                                .foregroundColor(.white)
-                        }
-                        
-                        Group {
-                            Text("Use of the Service")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            Text("The app is intended to be used for informational purposes only. Don't Pull Up is not responsible for any actions taken based on the information provided through the app.")
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .padding()
-                }
-            }
-        }
-        .navigationTitle("Terms of Service")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
+// These views now moved to ResourceViews.swift
 
 #Preview {
     SettingsView()
