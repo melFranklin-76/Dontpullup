@@ -89,22 +89,28 @@ class MapViewModel: NSObject, ObservableObject {
     func toggleFilter(_ type: IncidentType) {
         if selectedFilters.contains(type) {
             selectedFilters.remove(type)
+            LoggingManager.shared.log("Filter removed: \(type.title)", level: .info, category: "UI")
         } else {
             selectedFilters.insert(type)
+            LoggingManager.shared.log("Filter added: \(type.title)", level: .info, category: "UI")
         }
     }
     
     func toggleMyPinsFilter() {
         showingOnlyMyPins.toggle()
+        LoggingManager.shared.log("My pins filter toggled: \(showingOnlyMyPins ? "enabled" : "disabled")", level: .info, category: "UI")
     }
     
     func toggleMapType() {
+        let oldType = mapType
         mapType = mapType == .standard ? .hybrid : .standard
         mapRegion = mapRegion
+        LoggingManager.shared.log("Map type changed from \(oldType) to \(mapType)", level: .info, category: "UI")
     }
     
     func toggleEditMode() {
         isEditMode.toggle()
+        LoggingManager.shared.log("Edit mode toggled: \(isEditMode ? "enabled" : "disabled")", level: .info, category: "UI")
     }
     
     // MARK: - Zoom helpers
@@ -596,6 +602,10 @@ class MapViewModel: NSObject, ObservableObject {
     init(authState: AuthState) { // Updated initializer
         self.authState = authState
         super.init()
+        
+        // Initialize logging
+        LoggingManager.shared.log("MapViewModel initialized", level: .info, category: "Lifecycle")
+        
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         
@@ -627,21 +637,26 @@ class MapViewModel: NSObject, ObservableObject {
     
     private func loadPins() {
         print("[MapViewModel] Loading pins from Firestore")
+        LoggingManager.shared.log("Loading pins from Firestore", level: .info, category: "Data")
+        
         db.collection("pins").addSnapshotListener { [weak self] snapshot, error in
             guard let self = self else { return }
             
             if let error = error {
                 print("[MapViewModel] Error loading pins: \(error.localizedDescription)")
+                LoggingManager.shared.log("Error loading pins: \(error.localizedDescription)", level: .error, category: "Data")
                 self.showError("Failed to load pins: \(error.localizedDescription)")
                 return
             }
             
             guard let documents = snapshot?.documents else {
                 print("[MapViewModel] No pins found")
+                LoggingManager.shared.log("No pins found in Firestore", level: .info, category: "Data")
                 return
             }
             
             print("[MapViewModel] Found \(documents.count) pins")
+            LoggingManager.shared.log("Found \(documents.count) pins in Firestore", level: .info, category: "Data")
             
             Task { @MainActor in
                 let loadedPins = documents.compactMap { document -> Pin? in

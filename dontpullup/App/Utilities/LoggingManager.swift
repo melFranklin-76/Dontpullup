@@ -191,6 +191,52 @@ class LoggingManager {
         """
     }
     
+    /// Get error summary for troubleshooting
+    /// - Returns: Summary of recent errors
+    func getErrorSummary() -> String {
+        let errorLogs = getRecentLogs(count: 200).filter { $0.level == .error || $0.level == .warning }
+        
+        if errorLogs.isEmpty {
+            return "No recent errors or warnings found."
+        }
+        
+        let groupedErrors = Dictionary(grouping: errorLogs) { $0.category }
+        var summary = "Recent Issues Summary:\n"
+        
+        for (category, logs) in groupedErrors {
+            summary += "\n\(category): \(logs.count) issue(s)\n"
+            for log in logs.prefix(3) {
+                let timeStr = DateFormatter().string(from: log.timestamp)
+                summary += "  • [\(log.level.rawValue.uppercased())] \(log.message)\n"
+            }
+            if logs.count > 3 {
+                summary += "  • ... and \(logs.count - 3) more\n"
+            }
+        }
+        
+        return summary
+    }
+    
+    /// Get the most recent activity
+    /// - Returns: Summary of last few actions
+    func getLastActivity() -> String {
+        let recentLogs = getRecentLogs(count: 10)
+        
+        if recentLogs.isEmpty {
+            return "No recent activity recorded."
+        }
+        
+        var activity = "Last Activity:\n"
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        
+        for log in recentLogs.suffix(5) {
+            activity += "• \(formatter.string(from: log.timestamp)) - \(log.message)\n"
+        }
+        
+        return activity
+    }
+    
     // MARK: - Private methods
     
     private func shouldLog(level: LogLevel) -> Bool {

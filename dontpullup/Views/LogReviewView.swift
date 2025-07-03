@@ -56,10 +56,44 @@ struct LogReviewView: View {
                             .foregroundColor(.gray)
                     }
                     
-                    Text(loggingManager.getSessionSummary())
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .lineLimit(3)
+                    // Quick summary
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Last Activity")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Text(loggingManager.getLastActivity().components(separatedBy: "\n").first ?? "No activity")
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                        }
+                        
+                        Spacer()
+                        
+                        VStack(alignment: .trailing, spacing: 2) {
+                            let recentLogs = loggingManager.getRecentLogs(count: 50)
+                            let errorCount = recentLogs.filter { $0.level == .error }.count
+                            let warningCount = recentLogs.filter { $0.level == .warning }.count
+                            
+                            HStack(spacing: 8) {
+                                if errorCount > 0 {
+                                    Label("\(errorCount)", systemImage: "xmark.circle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
+                                }
+                                if warningCount > 0 {
+                                    Label("\(warningCount)", systemImage: "exclamationmark.triangle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
+                                if errorCount == 0 && warningCount == 0 {
+                                    Label("All good", systemImage: "checkmark.circle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding()
                 .background(Color.black.opacity(0.8))
@@ -120,6 +154,16 @@ struct LogReviewView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
+                        Button(action: showDetailedSummary) {
+                            Label("Session Summary", systemImage: "chart.bar.doc.horizontal")
+                        }
+                        
+                        Button(action: showErrorSummary) {
+                            Label("Error Summary", systemImage: "exclamationmark.triangle")
+                        }
+                        
+                        Divider()
+                        
                         Button(action: exportLogs) {
                             Label("Export Logs", systemImage: "square.and.arrow.up")
                         }
@@ -175,6 +219,16 @@ struct LogReviewView: View {
         
         shareURL = url
         showShareSheet = true
+    }
+    
+    private func showDetailedSummary() {
+        alertMessage = loggingManager.getSessionSummary()
+        showAlert = true
+    }
+    
+    private func showErrorSummary() {
+        alertMessage = loggingManager.getErrorSummary()
+        showAlert = true
     }
 }
 
