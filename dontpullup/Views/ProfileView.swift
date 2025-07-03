@@ -8,6 +8,7 @@ struct ProfileView: View {
     @State private var showDeleteAccountConfirmation = false
     @State private var showDeletionError = false
     @State private var deletionErrorMessage = ""
+    @State private var showLogReview = false
     
     var body: some View {
         NavigationView {
@@ -66,7 +67,30 @@ struct ProfileView: View {
                         }
                         .padding(.top, 24)
                         
-                        Spacer(minLength: 40) // More space above sign out button
+                        Spacer(minLength: 40) // More space above buttons
+                        
+                        // Review logs button
+                        Button(action: {
+                            showLogReview = true
+                        }) {
+                            HStack {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                    .font(.title3)
+                                Text("Review Last Output")
+                                    .font(.headline)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .foregroundColor(.white)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(10)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 16)
                         
                         // Sign out button
                         Button(action: {
@@ -130,6 +154,9 @@ struct ProfileView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(deletionErrorMessage)
+            }
+            .sheet(isPresented: $showLogReview) {
+                LogReviewView()
             }
         }
         .navigationViewStyle(.stack)

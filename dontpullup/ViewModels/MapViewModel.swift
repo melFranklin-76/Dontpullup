@@ -340,6 +340,9 @@ class MapViewModel: NSObject, ObservableObject {
     
     // MARK: - Alert handling
     func showError(_ message: String) {
+        // Log the error
+        LoggingManager.shared.log("Error: \(message)", level: .error, category: "MapView")
+        
         Task { @MainActor in
             // Add message to queue and try to show
             alertQueue.append(message)
@@ -878,16 +881,20 @@ class MapViewModel: NSObject, ObservableObject {
     }
     
     func startReportFlow(at coord: CLLocationCoordinate2D) {
+        LoggingManager.shared.log("Started report flow at coordinate: \(coord.latitude), \(coord.longitude)", level: .info, category: "ReportFlow")
         reportDraft = PinDraft(coordinate: coord)
         reportStep = .type
     }
     
     @MainActor
     func upload(draft: PinDraft) async {
+        LoggingManager.shared.log("Upload initiated for draft with incident type: \(draft.incidentType.title)", level: .info, category: "Upload")
+        
         // Check if user is anonymous AND trying to upload a video
         if authState.isAnonymous && draft.videoURL != nil {
             showError("Guests cannot upload videos.")
             reportStep = nil // Dismiss the report sheet
+            LoggingManager.shared.log("Upload blocked: Anonymous user attempted video upload", level: .warning, category: "Upload")
             // Potentially clear draft.videoURL or reset draft if needed
             // self.reportDraft.videoURL = nil 
             return
@@ -903,7 +910,9 @@ class MapViewModel: NSObject, ObservableObject {
                                            videoURL: remoteURL)
             pins.append(draft.makePin(id: pinId, remote: remoteURL))
             reportStep = nil                       // close sheet
+            LoggingManager.shared.log("Upload completed successfully for pin \(pinId)", level: .info, category: "Upload")
         } catch {
+            LoggingManager.shared.log("Upload failed: \(error.localizedDescription)", level: .error, category: "Upload")
             showError(error.localizedDescription)
         }
     }
@@ -1113,6 +1122,7 @@ extension MapViewModel: CLLocationManagerDelegate {
             
             // Update userLocation
             self.userLocation = location
+            LoggingManager.shared.log("Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude)", level: .debug, category: "Location")
             print("[MapViewModel] Delegate: Location updated: \(location.coordinate)")
             
             // Break down complex conditions into separate variables
@@ -1161,6 +1171,7 @@ extension MapViewModel: CLLocationManagerDelegate {
     
     nonisolated
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        LoggingManager.shared.log("Location manager failed: \(error.localizedDescription)", level: .error, category: "Location")
         print("[MapViewModel] Delegate: Failed to get location: \(error.localizedDescription)")
         Task { @MainActor in
             self.isRequestingLocation = false
